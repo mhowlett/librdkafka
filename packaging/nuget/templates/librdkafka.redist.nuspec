@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <package xmlns="http://schemas.microsoft.com/packaging/2011/10/nuspec.xsd">
   <metadata>
-    <id>librdkafka.redist</id>
+    <id>librdkafka.redist.${platform}-${arch}</id>
     <version>${version}</version>
     <title>librdkafka - redistributable</title>
     <authors>Magnus Edenhill, edenhill</authors>
@@ -14,6 +14,9 @@
     <releaseNotes>Release of librdkafka</releaseNotes>
     <copyright>Copyright 2012-2017</copyright>
     <tags>native apache kafka librdkafka C C++ nativepackage</tags>
+    <contentFiles>
+      <files include="**/librdkafka/${platform}-${arch}/*.*" buildAction="EmbeddedResource" copyToOutput="true" />
+    </contentFiles>
   </metadata>
   <files>
     <file src="**" />

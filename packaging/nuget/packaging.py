@@ -23,7 +23,7 @@ categories = ['dynamic', # dynamic libraries
               'pc',      # pkg-config
               'include'] # include files / headers
 
-win_ver = 'win7'
+win_ver = 'win'
 # Maps platform and category to expected files, or vice versa.
 wanted_files = {
     win_ver: {
@@ -35,24 +35,24 @@ wanted_files = {
     },
 
     'osx': {
-        'dynamic': ['librdkafka.dylib', 'librdkafka++.dylib'],
-        'static': ['librdkafka.a', 'librdkafka++.a'],
-        'include': ['rdkafka.h', 'rdkafkacpp.h'],
-        'pc': ['rdkafka.pc', 'rdkafka++.pc'],
+        'dynamic': ['librdkafka.dylib'],
+        'static': ['librdkafka.a'],
+        'include': ['rdkafka.h'],
+        'pc': ['rdkafka.pc'],
     },
 
     'debian': {
-        'dynamic': ['librdkafka.so.1', 'librdkafka++.so.1'],
-        'static': ['librdkafka.a', 'librdkafka++.a'],
-        'include': ['rdkafka.h', 'rdkafkacpp.h'],
-        'pc': ['rdkafka.pc', 'rdkafka++.pc'],
+        'dynamic': ['librdkafka.so.1'],
+        'static': ['librdkafka.a'],
+        'include': ['rdkafka.h'],
+        'pc': ['rdkafka.pc'],
     },
 
     'rhel':  {
-        'dynamic': ['librdkafka.so.1', 'librdkafka++.so.1'],
-        'static': ['librdkafka.a', 'librdkafka++.a'],
-        'include': ['rdkafka.h', 'rdkafkacpp.h'],
-        'pc': ['rdkafka.pc', 'rdkafka++.pc'],
+        'dynamic': ['librdkafka.so.1'],
+        'static': ['librdkafka.a'],
+        'include': ['rdkafka.h'],
+        'pc': ['rdkafka.pc'],
     }
 }
 
@@ -67,12 +67,11 @@ default_doc = ['../../README.md',
                '../../LICENSES.txt']
 
 # Rename matching files
-rename_files = {'librdkafka.so.1': 'librdkafka.so',
-                'librdkafka++.so.1': 'librdkafka++.so'}
+rename_files = {'librdkafka.so.1': 'librdkafka.so'}
 
 
 # Rename token values
-rename_vals = {'plat': {'linux': 'debian',
+rename_vals = {'plat': {'linux': 'linux',
                         'windows': win_ver},
                'arch': {'x86_64': 'x64',
                         'i386': 'x86',
@@ -215,22 +214,29 @@ class Artifacts (object):
             if m not in info or info[m] != v:
                 unmatched.append(m)
 
-        # Make sure all matches were satisfied, unless this is a
-        # common artifact.
-        if info.get('p', '') != 'common' and len(unmatched) > 0:
+        # Make sure all matches were satisfied.
+        if len(unmatched) > 0:
             # print('%s: %s did not match %s' % (info.get('p', None), folder, unmatched))
-            return None
+            if info.get('p', '') == 'common' and len(unmatched) == 1:
+                # expect tag to not match on common case.
+                pass
+            else:
+                return None
 
         return Artifact(self, path, info)
 
 
-    def collect_s3(self):
+    def collect_s3(self, distro):
         """ Collect and download build-artifacts from S3 based on git reference """
         print('Collecting artifacts matching %s from S3 bucket %s' % (self.match, s3_bucket))
         self.s3 = boto3.resource('s3')
         self.s3_bucket = self.s3.Bucket(s3_bucket)
         self.s3_client = boto3.client('s3')
         for item in self.s3_client.list_objects(Bucket=s3_bucket, Prefix='librdkafka/').get('Contents'):
+            if item['Key'].endswith('rpm') and distro != 'rhel':
+                continue
+            if item['Key'].endswith('gz') and distro == 'rhel':
+                continue
             self.collect_single(item.get('Key'))
 
         for a in self.artifacts:
@@ -252,17 +258,20 @@ class Package (object):
         A Package is a working container for one or more output
         packages for a specific package type (e.g., nuget) """
 
-    def __init__ (self, version, arts, ptype):
+    def __init__ (self, version, arts, ptype, platform, arch):
         super(Package, self).__init__()
         self.version = version
         self.arts = arts
         self.ptype = ptype
         # These may be overwritten by specific sub-classes:
         self.artifacts = arts.artifacts
-        self.platforms = platforms
+        if platform is None:
+            self.platforms = platforms
+        else:
+            self.platforms = [platform]
         # Staging path, filled in later.
         self.stpath = None
-        self.kv = {'version': version}
+        self.kv = {'version': version, 'arch': arch, 'platform': platform}
         self.files = dict()
 
     def add_file (self, file):
@@ -289,6 +298,8 @@ class Package (object):
                 with zfile.ZFile(a.lpath, 'r') as zf:
                     if os.path.splitext(a.lpath)[-1] == '.rpm':
                         a.info['plat'] = 'rhel'
+                    elif os.path.splitext(a.lpath)[-1] == '.gz' and a.info['plat'] == 'linux':
+                        a.info['plat'] = 'debian'
 
                     platform = a.info['plat']
                     if platform not in platforms:
@@ -308,13 +319,13 @@ class Package (object):
                 print('ignoring artifact: %s: %s' % (a.lpath, str(e)))
 
         # Verify that all wanted combinations were matched
-        errors = 0
-        for missing in [x for x in collect_files if len(collect_files[x]) == 0]:
-            errors += 1
-            print('ERROR: No matching artifact files for', missing)
-
-        if errors > 0:
-            raise Exception('Not all wanted files found in artifacts, see above.')
+        #errors = 0
+        #for missing in [x for x in collect_files if len(collect_files[x]) == 0]:
+        #    errors += 1
+        #    print('ERROR: No matching artifact files for', missing)
+#
+ #       if errors > 0:
+  #          raise Exception('Not all wanted files found in artifacts, see above.')
         return fout
 
 
@@ -338,12 +349,15 @@ class Package (object):
              for a, f in fout[category]:
                  # print('%s: Try %s matched to %s in %s' % (category, tmplsrc, f, a))
                  try:
-                     path = os.path.join(tmpl.substitute(a.info),
-                                         os.path.basename(f))
-                     ly[path].append((a, f))
+                    if tmpl.template.endswith('/'):
+                        path = os.path.join(tmpl.substitute(a.info),
+                                            os.path.basename(f))
+                    else:
+                        path = tmpl.substitute(a.info) + os.path.basename(f)
+                    ly[path].append((a, f))
                  except KeyError as e:
-                     print(' -- %s info key %s not found' % (a, e))
-                     pass
+                    print(' -- %s info key %s not found' % (a, e))
+                    pass
 
         # Sort providing sources for each path.
         # E.g., prefer .redist. before .symbols., etc.
@@ -364,11 +378,11 @@ class Package (object):
         """ Optional post-build package verifier """
         pass
 
-    def render (self, fname, destpath='.'):
+    def render (self, fname, oname, destpath='.'):
         """ Render template in file fname and save to destpath/fname,
         where destpath is relative to stpath """
 
-        outf = os.path.join(self.stpath, destpath, fname)
+        outf = os.path.join(self.stpath, destpath, oname)
 
         if not os.path.isdir(os.path.dirname(outf)):
             os.makedirs(os.path.dirname(outf), 0o0755)
@@ -429,13 +443,19 @@ class Package (object):
 
 
 
+class CoreNugetPackage (Package):
+    """ Nuget package for .NET Core. TODO. """
+
+
 class NugetPackage (Package):
     """ All platforms, archs, et.al, are bundled into one set of
         NuGet output packages: "main", redist and symbols """
-    def __init__ (self, version, arts):
+    def __init__ (self, version, arts, platform, arch):
         if version.startswith('v'):
             version = version[1:] # Strip v prefix
-        super(NugetPackage, self).__init__(version, arts, "nuget")
+        self.platform = platform
+        self.arch = arch
+        super(NugetPackage, self).__init__(version, arts, "nuget", platform, arch)
 
     def cleanup(self):
         if os.path.isdir(self.stpath):
@@ -450,17 +470,25 @@ class NugetPackage (Package):
         if vless_version[0] == 'v':
             vless_version = vless_version[1:]
 
+        self.stpath = tempfile.mkdtemp(
+            prefix="out-", 
+            suffix="-%s" % buildtype,
+            dir=".")
 
-        self.stpath = tempfile.mkdtemp(prefix="out-", suffix="-%s" % buildtype,
-                                       dir=".")
+        oname = 'librdkafka.redist.' + self.platform + '-' + self.arch;
+        
+        self.render('librdkafka.redist.nuspec', oname + '.nuspec')
 
-        self.render('librdkafka.redist.nuspec')
-        self.copy_template('librdkafka.redist.targets',
-                           destpath=os.path.join('build', 'native'))
-        self.copy_template('librdkafka.redist.props',
-                           destpath=os.path.join('build', 'native'))
-        self.copy_template('librdkafka.redist.props',
-                           destpath=os.path.join('build', 'net'))
+        if self.platform == win_ver:
+            self.copy_template(
+                'librdkafka.redist.targets',
+                oname + '.targets',
+                destpath=os.path.join('build', 'native'))
+            self.copy_template(
+                'librdkafka.redist.props',
+                oname + '.props',
+                destpath="build")
+
         for f in default_doc:
             shutil.copy(f, self.stpath)
 
@@ -472,9 +500,9 @@ class NugetPackage (Package):
         # and some spec and props files, call the 'nuget' utility to
         # make a proper nupkg of it (with all the metadata files).
         subprocess.check_call("./nuget.sh pack %s -BasePath '%s' -NonInteractive" %  \
-                              (os.path.join(self.stpath, 'librdkafka.redist.nuspec'),
+                              (os.path.join(self.stpath, oname + '.nuspec'),
                                self.stpath), shell=True)
-        return ['librdkafka.redist.%s.nupkg' % vless_version]
+        return [oname + '.%s.nupkg' % vless_version]
 
     def xlayout (self):
         """ Copy files from artifact nupkgs to new super-layout
@@ -490,17 +518,17 @@ class NugetPackage (Package):
                   build/native/lib/<plat>/<arch>/<variant>/<toolset>/{static}
                   build/native/include/librdkafka/*.h
 
-             * provide runtime artifacts: -> runtimes/
+             * provide runtime artifacts: -> librdkafka/
                - dynamic libraries
                - possibly symbol files
                - layout:
-                  runtimes/<plat>-<arch>/native/{dynamic}
+                  librdkafka/<plat>-<arch>/native/{dynamic}
              * both cases:
                - docs -> ./
 
-            runtimes from https://github.com/dotnet/corefx/blob/master/pkg/Microsoft.NETCore.Platforms/runtime.json
-            * win7-x86
-            * win7-x64
+            librdkafka from https://github.com/dotnet/corefx/blob/master/pkg/Microsoft.NETCore.Platforms/runtime.json
+            * win-x86
+            * win-x64
             * osx
             * osx-x64
             * debian-x64
@@ -523,17 +551,23 @@ class NugetPackage (Package):
             if 'toolset' not in a.info:
                 a.info['toolset'] = 'v120'
 
-        nuget_layout = {
-            # Build
-            'build/native/lib/${plat}/${arch}/${variant}/${toolset}/': 'static',
-            'build/native/include/librdkafka/': 'include',
-
-            # Runtime
-            'runtimes/${plat}-${arch}/native/': 'dynamic',
-
+        nuget_layout = {            
             # All
-            'content/docs/': 'doc'
+            'content/docs/': 'doc',
         }
+
+        if win_ver in self.platforms:
+            # Runtime
+            nuget_layout['librdkafka/${plat}-${arch}/native/'] = 'dynamic'
+
+            # Build
+            nuget_layout['build/native/lib/${plat}/${arch}/${variant}/${toolset}/'] = 'static'
+            nuget_layout['build/native/include/librdkafka/'] = 'include'
+
+            # dotnet core
+            nuget_layout['contentFiles/any/any/librdkafka/${plat}-${arch}/'] = 'dynamic'
+        else:
+            nuget_layout['contentFiles/any/any/librdkafka/${plat}-${arch}/'] = 'dynamic'
 
         layout = self.layout(nuget_layout)
 
@@ -566,19 +600,21 @@ class NugetPackage (Package):
                   "build/native/include/librdkafka/rdkafka.h",
                   "build/native/include/librdkafka/rdkafkacpp.h",
                   "build/net/librdkafka.redist.props",
-                  "runtimes/win7-x86/native/librdkafka.dll",
-                  "runtimes/win7-x86/native/librdkafka.lib",
-                  "runtimes/win7-x86/native/zlib.dll",
-                  "runtimes/win7-x86/native/msvcr120.dll",
-                  "runtimes/win7-x64/native/librdkafka.dll",
-                  "runtimes/win7-x64/native/librdkafka.lib",
-                  "runtimes/win7-x64/native/msvcr120.dll",
-                  "runtimes/osx-x64/native/librdkafka++.dylib",
-                  "runtimes/osx-x64/native/librdkafka.dylib",
-                  "runtimes/debian-x64/native/librdkafka++.so",
-                  "runtimes/debian-x64/native/librdkafka.so",
-                  "runtimes/rhel-x64/native/librdkafka++.so",
-                  "runtimes/rhel-x64/native/librdkafka.so"]
+                  #"librdkafka/win-x86/native/librdkafka.dll",
+                  #"librdkafka/win-x86/native/librdkafka.lib",
+                  #"librdkafka/win-x86/native/zlib.dll",
+                  #"librdkafka/win-x86/native/msvcr120.dll",
+                  "librdkafka/win-x64/native/librdkafka.dll",
+                  "librdkafka/win-x64/native/librdkafka.lib",
+                  "librdkafka/win-x64/native/msvcr120.dll",
+                  #"librdkafka/osx-x64/native/librdkafka++.dylib",
+                  #"librdkafka/osx-x64/native/librdkafka.dylib",
+                  #"librdkafka/debian-x64/native/librdkafka++.so",
+                  #"librdkafka/debian-x64/native/librdkafka.so",
+                  #"librdkafka/rhel-x64/native/librdkafka++.so",
+                  #"librdkafka/rhel-x64/native/librdkafka.so"
+                  ]
+
         missing = list()
         with zfile.ZFile(path, 'r') as zf:
             print('Verifying %s:' % path)
