@@ -668,6 +668,7 @@ static int rd_kafka_transport_ssl_connect (rd_kafka_broker_t *rkb,
 	int r;
 	char name[RD_KAFKA_NODENAME_SIZE];
 	char *t;
+	BIO *wbio;
 
 	rktrans->rktrans_ssl = SSL_new(rkb->rkb_rk->rk_conf.ssl.ctx);
 	if (!rktrans->rktrans_ssl)
@@ -689,6 +690,9 @@ static int rd_kafka_transport_ssl_connect (rd_kafka_broker_t *rkb,
 #endif
 
         rd_kafka_transport_ssl_clear_error(rktrans);
+
+	wbio = SSL_get_wbio(rktrans->rktrans_ssl);
+	BIO_set_write_buffer_size(wbio, 1400);
 
 	r = SSL_connect(rktrans->rktrans_ssl);
 	if (r == 1) {
