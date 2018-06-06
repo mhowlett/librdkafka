@@ -40,6 +40,7 @@
 #include "rdkafka_broker.h"
 #include "rdkafka_interceptor.h"
 
+#include <netinet/tcp.h>
 #include <errno.h>
 
 #if WITH_VALGRIND
@@ -1288,7 +1289,7 @@ static void rd_kafka_transport_connected (rd_kafka_transport_t *rktrans) {
 
 	printf("before disable nagle\n");
 #ifdef TCP_NODELAY
-	printf("In #IFDEF\n")
+	printf("In #IFDEF\n");
 	if (rkb->rkb_rk->rk_conf.socket_nagle_disable) {
 		int one = 1;
 		printf("disabling nagel\n");
