@@ -1286,11 +1286,12 @@ static void rd_kafka_transport_connected (rd_kafka_transport_t *rktrans) {
                 rktrans->rktrans_sndbuf_size = 1024*64; /* Use at least 64KB */
 
 
-	printf("before disable nagle");
+	printf("before disable nagle\n");
 #ifdef TCP_NODELAY
+	printf("In #IFDEF\n")
 	if (rkb->rkb_rk->rk_conf.socket_nagle_disable) {
 		int one = 1;
-		printf("disabling nagel");
+		printf("disabling nagel\n");
 		if (setsockopt(rktrans->rktrans_s, IPPROTO_TCP, TCP_NODELAY,
 			       (void *)&one, sizeof(one)) == SOCKET_ERROR)
 			rd_rkb_log(rkb, LOG_WARNING, "NAGLE",
