@@ -40,6 +40,7 @@
 #include "rdkafka_broker.h"
 #include "rdkafka_interceptor.h"
 
+#include <netinet/tcp.h>
 #include <errno.h>
 
 #if WITH_VALGRIND
