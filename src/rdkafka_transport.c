@@ -668,7 +668,6 @@ static int rd_kafka_transport_ssl_connect (rd_kafka_broker_t *rkb,
 	int r;
 	char name[RD_KAFKA_NODENAME_SIZE];
 	char *t;
-	BIO *wbio;
 
 	rktrans->rktrans_ssl = SSL_new(rkb->rkb_rk->rk_conf.ssl.ctx);
 	if (!rktrans->rktrans_ssl)
@@ -690,9 +689,6 @@ static int rd_kafka_transport_ssl_connect (rd_kafka_broker_t *rkb,
 #endif
 
         rd_kafka_transport_ssl_clear_error(rktrans);
-
-	wbio = SSL_get_wbio(rktrans->rktrans_ssl);
-	BIO_set_write_buffer_size(wbio, 1400);
 
 	r = SSL_connect(rktrans->rktrans_ssl);
 	if (r == 1) {
@@ -719,11 +715,15 @@ static RD_UNUSED int
 rd_kafka_transport_ssl_io_event (rd_kafka_transport_t *rktrans, int events) {
 	int r;
 	char errstr[512];
+	BIO *wbio;
 
 	if (events & POLLOUT) {
                 rd_kafka_transport_ssl_clear_error(rktrans);
 
 		r = SSL_write(rktrans->rktrans_ssl, NULL, 0);
+		wbio = SSL_get_wbio(rktrans->rktrans_ssl);
+		BIO_flush(wbio);
+
 		if (rd_kafka_transport_ssl_io_update(rktrans, r,
 						     errstr,
 						     sizeof(errstr)) == -1)
@@ -1286,9 +1286,11 @@ static void rd_kafka_transport_connected (rd_kafka_transport_t *rktrans) {
                 rktrans->rktrans_sndbuf_size = 1024*64; /* Use at least 64KB */
 
 
+	printf("before disable nagle");
 #ifdef TCP_NODELAY
 	if (rkb->rkb_rk->rk_conf.socket_nagle_disable) {
 		int one = 1;
+		printf("disabling nagel");
 		if (setsockopt(rktrans->rktrans_s, IPPROTO_TCP, TCP_NODELAY,
 			       (void *)&one, sizeof(one)) == SOCKET_ERROR)
 			rd_rkb_log(rkb, LOG_WARNING, "NAGLE",
