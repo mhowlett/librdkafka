@@ -40,7 +40,7 @@
 /**
  * Fix-up bad LZ4 framing caused by buggy Kafka client / broker.
  * The LZ4F framing format is described in detail here:
- * https://github.com/Cyan4973/lz4/blob/master/lz4_Frame_format.md
+ * https://github.com/lz4/lz4/blob/master/doc/lz4_Frame_format.md
  *
  * NOTE: This modifies 'inbuf'.
  *
@@ -155,6 +155,26 @@ rd_kafka_lz4_compress_break_framing (rd_kafka_broker_t *rkb,
 }
 
 
+rd_kafka_estimate_uncompressed_size(rd_kafka_broker_t *rkb,
+                                    LZ4F_frameInfo_t *fi, size_t inlen) {
+        /* The maximum lz4 compression ratio is 255, so if contentSize > 
+         * inlen*255, something is wrong. */
+        if (fi->contentSize > 0 && fi->contentSize <= inlen * 255)
+                return fi->contentSize;
+
+        /* If contentSize is unknown, blockSizeID provides information about
+         * the maximum uncompressed size. */
+        if (fi->blockSizeID >= 4)
+                // LZ4F_max64KB, LZ4F_max256KB, LZ4F_max1MB or LZ4F_max4MB.
+                return 1 << ((2 * fi->blockSizeID) + 8);
+
+        /* If blockSizeID is LZ4F_default, or N/A, guess something sane (note:
+         * may need to reallocate higher). */
+        return RD_MIN(
+                inlen * 4,
+                (size_t)(rkb->rkb_rk->rk_conf.max_msg_size));
+}
+
 
 /**
  * @brief Decompress LZ4F (framed) data.
@@ -209,17 +229,8 @@ rd_kafka_lz4_decompress (rd_kafka_broker_t *rkb, int proper_hc, int64_t Offset,
                 goto done;
         }
 
-        /* If uncompressed size is unknown or out of bounds, use a sane
-         * default (2x compression) and reallocate if needed
-         * More info on max size: http://stackoverflow.com/a/25751871/1821055 */
-        if (fi.contentSize == 0 || fi.contentSize > inlen * 255) {
-                estimated_uncompressed_size = RD_MIN(
-                        inlen * 255,
-                        RD_MAX(inlen * 2,
-                               (size_t)(rkb->rkb_rk->rk_conf.max_msg_size)));
-        } else {
-                estimated_uncompressed_size = (size_t)fi.contentSize;
-        }
+        estimated_uncompressed_size =
+                rd_kafka_estimate_uncompressed_size(rkb, &fi, inlen);
 
         /* Allocate output buffer, we increase this later if needed,
          * but hopefully not. */
