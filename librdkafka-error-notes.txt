@@ -1,0 +1,110 @@
+
+Consumer.Consumer -> rd_kafka_consumer_poll
+
+rd_kafka_consumer_poll   [rdkafka.c]
+    can return **RD_KAFKA_RESP_ERR__UNKNOWN_GROUP**
+        - only happens if rk->rk_cgrp is not set.
+            - only happens if handle is not a consumer client || group.id empty
+                - if group.id is empty, constructor fails whilst redirecting poll queue to consumer_poll
+                - .NET Client doesn't allow call of Consume on non-consumer instance.
+                    - so RD_KAFKA_RESP_ERR__UNKNOWN_GROUP will never occur.
+
+rd_kafka_consumer_poll -> rd_kafka_consume0   [rdkafka.c]
+    - notes:
+        - there's a rd_kafka_q_t associated with the CG, rkcg->rkcg_q (passed into rd_kafka_consume0).
+        - rd_kafka_q_s is defined in rdkafka_queue.h (at the top).
+        - get ops from the queue, and call rd_kafka_poll_cb [rdkafka.c] until:
+            - RD_KAFKA_OP_RES_PASS [up to returnable op] or RD_KAFKA_OP_RES_YIELD [error - exit function].
+        - then make sure have RD_KAFKA_OP_FETCH or RD_KAFKA_OP_CONSUMER_ERR
+        - then call rd_kafka_message_get   [rdkafka_msg.c]
+            - some prep is required to build an rkmessage from an op.
+            - return rkmessage to user.
+    - nothing in this method that generates ops - just reacts to ops.
+
+
+
+rd_kafka_broker_thread_main -> rd_kafka_broker_consumer_serve    [rdkafka_broker.c]
+    - when broker has state RD_KAFKA_BROKER_STATE_UP, rd_kafka_broker_consumer_serve is called in main loop.
+
+rd_kafka_broker_consumer_serve   [rdkafka_broker.c]
+    -> rd_kafka_broker_fetch_toppars
+            - sets up fetch request.
+            - passes `rd_kafka_broker_fetch_reply` into rd_kafka_broker_buf_enq1
+            - this is set in rkbuf->rkbuf_cb
+                - this can be called in quite a number of places.
+
+rd_kafka_broker_fetch_reply   [rdkafka_broker.c]
+    -> handles all of the following results from reply_handle OR as passed in without generating an op:
+        RD_KAFKA_RESP_ERR_UNKNOWN_TOPIC_OR_PART
+        RD_KAFKA_RESP_ERR_LEADER_NOT_AVAILABLE
+        RD_KAFKA_RESP_ERR_NOT_LEADER_FOR_PARTITION
+        RD_KAFKA_RESP_ERR_BROKER_NOT_AVAILABLE
+        RD_KAFKA_RESP_ERR_REPLICA_NOT_AVAILABLE
+            //
+        RD_KAFKA_RESP_ERR__TRANSPORT
+        RD_KAFKA_RESP_ERR_REQUEST_TIMED_OUT
+        RD_KAFKA_RESP_ERR__MSG_TIMED_OUT
+    -> rd_kafka_fetch_reply_handle is what can generate some OPs.
+        - loops around topics / partitions.
+            - partition EOF or **RD_KAFKA_RESP_ERR_MSG_SIZE_TOO_LARGE** can cause a RD_KAFKA_OP_CONSUMER_ERR Op.
+                - I don't think RD_KAFKA_RESP_ERR_MSG_SIZE_TOO_LARGE can ever happen here (don't think broker ever sends it).
+            - Possible error codes (per partition in fetch, from wiki):
+                - OFFSET_OUT_OF_RANGE (1)
+                - UNKNOWN_TOPIC_OR_PARTITION (3)
+                - NOT_LEADER_FOR_PARTITION (6)
+                - REPLICA_NOT_AVAILABLE (9)
+                - UNKNOWN (-1)
+                - None of these results in an error OP by librdkafa.
+            - rd_kafka_msgset_parse   [rdkafka_msgset_reader.c]
+                -> rd_kafka_msgset_reader_init / rd_kafka_msgset_reader_run / rd_kafka_msgset_reader
+                    - rd_kafka_msgset_reader_run may return **RD_KAFKA_RESP_ERR_MSG_SIZE_TOO_LARGE**
+                        - try increasing receive.message.max.bytes.
+                -> rd_kafka_msgset_reader will return **RD_KAFKA_RESP_ERR__NOT_IMPLEMENTED** if message set verion number unrecognised.
+                    - makes use of:
+                        [0] = rd_kafka_msgset_reader_msg_v0_1,
+                        [1] = rd_kafka_msgset_reader_msg_v0_1,
+                        [2] = rd_kafka_msgset_reader_v2
+                    - the above can return
+                        - **RD_KAFKA_RESP_ERR__BAD_MSG** if CRC check fails.
+                    - message de-compression may make:
+                        - **RD_KAFKA_RESP_ERR__NOT_IMPLEMENTED** - unknown decompression algorithm.
+                        - **RD_KAFKA_RESP_ERR__BAD_COMPRESSION** - decompression returned an error.
+                        - **RD_KAFKA_RESP_ERR__CRIT_SYS_RESOURCE** - failure to allocate resource.
+
+- RD_KAFKA_RESP_ERR_MSG_SIZE_TOO_LARGE
+- RD_KAFKA_RESP_ERR__UNKNOWN_GROUP   (won't happen)
+- RD_KAFKA_RESP_ERR__NOT_IMPLEMENTED  (msg set format, compression ratio)
+- RD_KAFKA_RESP_ERR__BAD_COMPRESSION
+- RD_KAFKA_RESP_ERR__CRIT_SYS_RESOURCE
+
+
+
+rd_kafka_cgrp_handle_GroupCoordinator
+rd_kafka_cgrp_handle_JoinGroup
+rd_kafka_cgrp_offsets_fetch_response
+rd_kafka_cgrp_terminate0
+    - all produce RD_KAFKA_OP_CONSUMER_ERR
+        - rd_kafka_consumer_poll looks at rkcg->rkcg_q, which is where the above go.
+
+
+Java consumer.poll
+    - InvalidOffsetException - if the offset for a partition or set of partitions is undefined or out of range and no offset reset policy has been configured.
+        - in librdkafka, must be specified? what is error setting?
+    - AuthenticationException - does librdkafka get this here too?
+    - AuthorizationException - does librdkafka get this here too?
+    - KafkaException - invalid group id, invalid session timeout, deserialization errors, or new errors
+    - IllegalStateException - not assigned to anything.
+
+
+-----------------------  producev   [rdkafka_msg.c]
+
+returns
+    - RD_KAFKA_RESP_ERR__CONFLICT - if both header and headers is specified (can't happen in C#).
+    - RD_KAFKA_RESP_ERR__INVALID_ARG - if invalid arg to producev (can't happen in C#).
+    - RD_KAFKA_RESP_ERR_MSG_SIZE_TOO_LARGE in rd_kafka_msg_new0
+    - RD_KAFKA_RESP_ERR__QUEUE_FULL in rd_kafka_msg_new0 -> rd_kafka_curr_msgs_add
+
+
+rd_kafka_poll   [rdkafka.c]
+    -> rd_kafka_q_serve   [rdkafka_queue.c]
+    
