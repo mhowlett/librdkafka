@@ -287,6 +287,8 @@ enum ErrorCode {
         ERR__FENCED = -144,
         /** Application generated error */
         ERR__APPLICATION = -143,
+        /** Lost partitions (rebalance_cb) */
+        ERR__LOST_PARTITIONS = -142,
 
         /** End internal error codes */
 	ERR__END = -100,

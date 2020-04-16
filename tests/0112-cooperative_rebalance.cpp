@@ -83,8 +83,8 @@ extern "C" {
     bool run = true;
     int cnt = 0;
     while (run) {
-      RdKafka::Message *msg = c1->consume(tmout_multip(1000));
       cnt += 1;
+      RdKafka::Message *msg = c1->consume(tmout_multip(1000));
       if (cnt == 5) {
         /*
           * Consumer #2 subscribe
@@ -101,6 +101,8 @@ extern "C" {
         // case RdKafka::ERR__PARTITION_EOF:
         //   run = false;
         //   break;
+        default:
+          break;
         }
     }
 

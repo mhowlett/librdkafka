@@ -361,6 +361,7 @@ struct rd_kafka_conf_s {
 
         rd_kafka_isolation_level_t isolation_level;
 
+        int notify_lost_partitions_as_revoked;
 	int enable_partition_eof;
 
 	rd_kafkap_str_t *client_rack;
