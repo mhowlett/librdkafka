@@ -375,6 +375,8 @@ typedef enum {
         RD_KAFKA_RESP_ERR__FENCED = -144,
         /** Application generated error */
         RD_KAFKA_RESP_ERR__APPLICATION = -143,
+        /** Lost partitions (rebalance_cb) */
+        RD_KAFKA_RESP_ERR__LOST_PARTITIONS = -142,
 
 	/** End internal error codes */
 	RD_KAFKA_RESP_ERR__END = -100,

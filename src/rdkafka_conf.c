@@ -1100,6 +1100,12 @@ static const struct rd_kafka_property rd_kafka_properties[] = {
 	  _RK(offset_commit_cb),
 	  "Offset commit result propagation callback. "
           "(set with rd_kafka_conf_set_offset_commit_cb())" },
+        { _RK_GLOBAL|_RK_CONSUMER, "notify.lost.partitions.as.revoked",
+	  _RK_C_BOOL, _RK(notify_lost_partitions_as_revoked),
+	  "If true, lost partitions rebalance_cb events will be raised "
+          "with RD_KAFKA_RESP_ERR__REVOKE_PARTITIONS, not "
+          "RD_KAFKA_RESP_ERR__LOST_PARTITIONS.",
+	  0, 1, 1 },
 	{ _RK_GLOBAL|_RK_CONSUMER, "enable.partition.eof", _RK_C_BOOL,
 	  _RK(enable_partition_eof),
 	  "Emit RD_KAFKA_RESP_ERR__PARTITION_EOF event whenever the "
