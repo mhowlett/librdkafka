@@ -27,19 +27,29 @@
  */
 #include "rdkafka_int.h"
 #include "rdkafka_assignor.h"
+#include "rdkafka_request.h"
 
 
 /**
  * Source: https://github.com/apache/kafka/blob/trunk/clients/src/main/java/org/apache/kafka/clients/consumer/StickyAssignor.java
- * 
+ *
  */
 
 
 static rd_kafka_topic_partition_list_t *
 rd_kafka_group_sticky_assignor_read_assignment (const rd_kafkap_bytes_t
 						*UserData) {
-	rd_kafka_topic_partition_list_t *result;
+	rd_kafka_topic_partition_list_t *result = NULL;
 
+	// can assignment be null?
+
+	// TODO: remember this must be able to handle the case where
+	// generation id is not present.
+
+        // if (!(assignment = rd_kafka_buf_read_topic_partitions(rkbuf, 0, rd_false)))
+        //         goto err;
+
+	// TODO: read assignment in request.c
 	return result;
 }
 
@@ -135,16 +145,12 @@ void rd_kafka_sticky_assignor_on_assignment_cb (
 rd_kafkap_bytes_t *
 rd_kafka_sticky_assignor_get_metadata (rd_kafka_assignor_t *rkas,
 				       void *assignor_state,
-				       const rd_list_t *topics) {
+				       const rd_list_t *topics,
+				       const rd_kafka_topic_partition_list_t
+				       *owned_partitions) {
 	rd_kafka_sticky_assignor_state_t *state;
 	rd_kafka_buf_t *rkbuf;
 	rd_kafkap_bytes_t *kbytes;
-	int i;
-        size_t of_TopicCnt;
-        const char *last_topic = NULL;
-        ssize_t of_PartCnt = -1;
-        int TopicCnt = 0;
-        int PartCnt = 0;
 	size_t len;
 
 	/*
@@ -154,46 +160,20 @@ rd_kafka_sticky_assignor_get_metadata (rd_kafka_assignor_t *rkas,
 	 *     partitions => partition
 	 *       partition => INT32
 	 *   generation => INT32
+	 *
+	 * If there is no previous assignment, UserData is NULL.
 	 */
 
-	/* No previous assignment */
 	if (!assignor_state) {
-		// java returns null, here we use empty.
 		return rd_kafka_consumer_protocol_member_metadata_new(
-                	topics, NULL, 0);
+                	topics, NULL, 0, owned_partitions);
 	}
 
 	state = (rd_kafka_sticky_assignor_state_t *)assignor_state;
 
         rkbuf = rd_kafka_buf_new(1, 100);
-        of_TopicCnt = rd_kafka_buf_write_i32(rkbuf, 0); /* Updated later */
-        for (i = 0 ; i < state->prev_assignment->cnt ; i++) {
-                const rd_kafka_topic_partition_t *rktpar;
-
-                rktpar = &state->prev_assignment->elems[i];
-
-                if (!last_topic || strcmp(last_topic,
-                                          rktpar->topic)) {
-                        if (last_topic)
-                                /* Finalize previous PartitionCnt */
-                                rd_kafka_buf_update_i32(rkbuf, of_PartCnt,
-                                                        PartCnt);
-                        rd_kafka_buf_write_str(rkbuf, rktpar->topic, -1);
-                        /* Updated later */
-                        of_PartCnt = rd_kafka_buf_write_i32(rkbuf, 0);
-                        PartCnt = 0;
-                        last_topic = rktpar->topic;
-                        TopicCnt++;
-                }
-
-                rd_kafka_buf_write_i32(rkbuf, rktpar->partition);
-                PartCnt++;
-        }
-
-        if (of_PartCnt != -1)
-                rd_kafka_buf_update_i32(rkbuf, of_PartCnt, PartCnt);
-        rd_kafka_buf_update_i32(rkbuf, of_TopicCnt, TopicCnt);
-
+	rd_assert(state->prev_assignment != NULL);
+	rd_kafka_buf_write_assignment(rkbuf, state->prev_assignment);
         rd_kafka_buf_write_i32(rkbuf, state->generation_id);
 
         /* Get binary buffer and allocate a new Kafka Bytes with a copy. */
@@ -204,7 +184,7 @@ rd_kafka_sticky_assignor_get_metadata (rd_kafka_assignor_t *rkas,
         rd_kafka_buf_destroy(rkbuf);
 
 	return rd_kafka_consumer_protocol_member_metadata_new(
-                topics, kbytes->data, kbytes->len);
+                topics, kbytes->data, kbytes->len, owned_partitions);
 }
 
 

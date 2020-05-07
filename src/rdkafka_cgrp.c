@@ -867,6 +867,7 @@ rd_kafka_group_MemberMetadata_consumer_read (
         rd_kafkap_bytes_t UserData;
         const int log_decode_errors = LOG_ERR;
         rd_kafka_resp_err_t err = RD_KAFKA_RESP_ERR__BAD_MSG;
+        rd_kafka_topic_partition_list_t *assignment = NULL;
 
         /* Create a shadow-buffer pointing to the metadata to ease parsing. */
         rkbuf = rd_kafka_buf_new_shadow(MemberMetadata->data,
@@ -894,6 +895,11 @@ rd_kafka_group_MemberMetadata_consumer_read (
 
         rd_kafka_buf_read_bytes(rkbuf, &UserData);
         rkgm->rkgm_userdata = rd_kafkap_bytes_copy(&UserData);
+
+        if (Version >= 1)
+                if (!(rkgm->rkgm_owned = rd_kafka_buf_read_topic_partitions(
+                                rkbuf, 0, rd_false)))
+                        goto err;
 
         rd_kafka_buf_destroy(rkbuf);
 
@@ -3693,30 +3699,8 @@ void rd_kafka_cgrp_handle_SyncGroup (rd_kafka_cgrp_t *rkcg,
 		rkbuf->rkbuf_rkb = rd_kafka_broker_internal(rkcg->rkcg_rk);
 
         rd_kafka_buf_read_i16(rkbuf, &Version);
-        rd_kafka_buf_read_i32(rkbuf, &TopicCnt);
-
-        if (TopicCnt > 10000) {
-                err = RD_KAFKA_RESP_ERR__BAD_MSG;
+        if (!(assignment = rd_kafka_buf_read_topic_partitions(rkbuf, 0, rd_false)))
                 goto err;
-        }
-
-        assignment = rd_kafka_topic_partition_list_new(TopicCnt);
-        while (TopicCnt-- > 0) {
-                rd_kafkap_str_t Topic;
-                int32_t PartCnt;
-                rd_kafka_buf_read_str(rkbuf, &Topic);
-                rd_kafka_buf_read_i32(rkbuf, &PartCnt);
-                while (PartCnt-- > 0) {
-                        int32_t Partition;
-			char *topic_name;
-			RD_KAFKAP_STR_DUPA(&topic_name, &Topic);
-                        rd_kafka_buf_read_i32(rkbuf, &Partition);
-
-                        rd_kafka_topic_partition_list_add(
-                                assignment, topic_name, Partition);
-                }
-        }
-
         rd_kafka_buf_read_bytes(rkbuf, &UserData);
 
  done:
@@ -3842,8 +3826,8 @@ rd_kafka_error_t *rd_kafka_consumer_group_metadata_write (
         memcpy(buf, rd_kafka_consumer_group_metadata_magic, magic_len);
         of += magic_len;
 
-        *(buf+of) = cgmd->generation_id;
-        of += sizeof(int32_t);
+        *(int32_t *)(buf+of) = htole32(cgmd->generation_id);
+        of += generationid_len;
 
         memcpy(buf+of, cgmd->group_id, groupid_len);
 
@@ -3875,7 +3859,7 @@ rd_kafka_error_t *rd_kafka_consumer_group_metadata_read (
                         "Input buffer is not a serialized "
                         "consumer group metadata object");
 
-        generation_id = *(buf+magic_len);
+        generation_id = le32toh(*(int32_t *)(buf+magic_len));
 
         group_id = buf + magic_len + generationid_len;
 
