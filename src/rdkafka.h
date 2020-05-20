@@ -3615,6 +3615,15 @@ rd_kafka_assign (rd_kafka_t *rk,
                  const rd_kafka_topic_partition_list_t *partitions);
 
 /**
+ * @brief Incrementally adjust the current partition assignment.
+ *
+ * TODO.
+ */
+RD_EXPORT rd_kafka_resp_err_t
+rd_kafka_incremental_assign (rd_kafka_t *rk,
+                             const rd_kafka_topic_partition_list_t *partitions);
+
+/**
  * @brief Returns the current partition assignment
  *
  * @returns An error code on failure, otherwise \p partitions is updated

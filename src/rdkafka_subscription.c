@@ -93,8 +93,10 @@ rd_kafka_subscribe (rd_kafka_t *rk,
 
 
 rd_kafka_resp_err_t
-rd_kafka_assign (rd_kafka_t *rk,
-                 const rd_kafka_topic_partition_list_t *partitions) {
+rd_kafka_incremental_assign0 (rd_kafka_t *rk,
+                              int type,
+                              const rd_kafka_topic_partition_list_t
+                              *partitions) {
         rd_kafka_op_t *rko;
         rd_kafka_cgrp_t *rkcg;
 
@@ -102,6 +104,7 @@ rd_kafka_assign (rd_kafka_t *rk,
                 return RD_KAFKA_RESP_ERR__UNKNOWN_GROUP;
 
         rko = rd_kafka_op_new(RD_KAFKA_OP_ASSIGN);
+        rko->rko_u.assign.type = type;
 	if (partitions)
 		rko->rko_u.assign.partitions =
                         rd_kafka_topic_partition_list_copy(partitions);
@@ -110,6 +113,37 @@ rd_kafka_assign (rd_kafka_t *rk,
                 rd_kafka_op_req(rkcg->rkcg_ops, rko, RD_POLL_INFINITE));
 }
 
+
+rd_kafka_resp_err_t
+rd_kafka_assign (rd_kafka_t *rk,
+                 const rd_kafka_topic_partition_list_t *partitions) {
+        return rd_kafka_incremental_assign0(rk, RD_KAFKA_ASSIGN_TYPE_REPLACE,
+                                            partitions);
+}
+
+
+rd_kafka_resp_err_t
+rd_kafka_incremental_assign (rd_kafka_t *rk,
+                             const rd_kafka_topic_partition_list_t
+                             *partitions) {
+        if (partitions == NULL)
+                return RD_KAFKA_RESP_ERR__INVALID_ARG;
+
+        return rd_kafka_incremental_assign0(rk, RD_KAFKA_ASSIGN_TYPE_ADD,
+                                            partitions);
+}
+
+
+rd_kafka_resp_err_t
+rd_kafka_incremental_unassign (rd_kafka_t *rk,
+                            const rd_kafka_topic_partition_list_t
+                            *partitions) {
+        if (partitions == NULL)
+                return RD_KAFKA_RESP_ERR__INVALID_ARG;
+
+        return rd_kafka_incremental_assign0(rk, RD_KAFKA_ASSIGN_TYPE_REMOVE,
+                                            partitions);
+}
 
 
 rd_kafka_resp_err_t

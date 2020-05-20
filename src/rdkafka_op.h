@@ -274,6 +274,11 @@ struct rd_kafka_op_s {
 		} subscribe; /* also used for GET_SUBSCRIPTION */
 
 		struct {
+                        enum {
+                                RD_KAFKA_ASSIGN_TYPE_REPLACE,
+                                RD_KAFKA_ASSIGN_TYPE_ADD,
+                                RD_KAFKA_ASSIGN_TYPE_REMOVE,
+                        } type;
 			rd_kafka_topic_partition_list_t *partitions;
 		} assign; /* also used for GET_ASSIGNMENT */
 
