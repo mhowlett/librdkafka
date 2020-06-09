@@ -1,5 +1,8 @@
 # librdkafka v1.6.0
 
+The v1.6.0 release is a feature release adding support for Incremental
+rebalancing of consumer groups.
+
 ## Enhancements
 
  * The generated `CONFIGURATION.md` (through `rd_kafka_conf_properties_show())`)
@@ -9,6 +12,8 @@
    a more useful error string saying why the property can't be set.
  * Consumer configs on producers and vice versa will now be logged with
    warning messages on client instantiation.
+ * Added `assignor` debug context for troubleshooting consumer partition
+   assignments.
 
 
 ## Fixes
@@ -40,6 +45,7 @@
    if a topic was deleted from the cluster when a transaction was using it.
  * `ERR_KAFKA_STORAGE_ERROR` is now correctly treated as a retriable
    produce error (#3026).
+
 
 
 # librdkafka v1.5.0
