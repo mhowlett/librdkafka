@@ -61,8 +61,6 @@ rd_kafka_error_t *rd_kafka_error_new_retriable (rd_kafka_resp_err_t code,
                                                 const char *fmt, ...);
 rd_kafka_error_t *rd_kafka_error_new_txn_requires_abort (rd_kafka_resp_err_t code,
                                                     const char *fmt, ...);
-
-
 rd_kafka_resp_err_t rd_kafka_error_to_legacy (rd_kafka_error_t *error,
                                               char *errstr, size_t errstr_size);
 #endif /* _RDKAFKA_ERROR_H_ */
