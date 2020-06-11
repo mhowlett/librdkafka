@@ -412,7 +412,8 @@ int rd_kafka_q_enq1 (rd_kafka_q_t *rkq, rd_kafka_op_t *rko,
                 if (do_lock)
                         mtx_unlock(&rkq->rkq_lock);
 
-                return rd_kafka_op_reply(rko, RD_KAFKA_RESP_ERR__DESTROY);
+                return rd_kafka_op_reply(rko,
+                                         RD_KAFKA_RESP_ERR__DESTROY);
         }
 
         if (!(fwdq = rd_kafka_q_fwd_get(rkq, 0))) {

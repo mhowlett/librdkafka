@@ -2109,7 +2109,8 @@ rd_kafka_toppar_op_serve (rd_kafka_t *rk,
 #if ENABLE_DEVEL
 			rd_kafka_op_print(stdout, "PART_OUTDATED", rko);
 #endif
-                        rd_kafka_op_reply(rko, RD_KAFKA_RESP_ERR__OUTDATED);
+                        rd_kafka_op_reply(rko,
+                                          RD_KAFKA_RESP_ERR__OUTDATED);
 			return RD_KAFKA_OP_RES_HANDLED;
 		}
 	}
