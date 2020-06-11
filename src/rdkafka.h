@@ -3638,19 +3638,59 @@ RD_EXPORT
 rd_kafka_resp_err_t rd_kafka_consumer_close (rd_kafka_t *rk);
 
 
+/**
+ * @brief Incrementally add \p partitions to the current assignment.
+ *
+ * If a COOPERATIVE assignor (i.e. incremental rebalancing) is being used,
+ * this method should be used in a rebalance callback to adjust the current
+ * assignmnet appropriately in the case where the rebalance type is
+ * RD_KAFKA_RESP_ERR__ASSIGN_PARTITIONS. The application must pass the
+ * partition list passed to the callback (or a copy of it), even if the
+ * list is empty. \p partitions must not be NULL. This method may also be
+ * used outside the context of a rebalance callback.
+ *
+ * @returns An error code indicating if the new assignment was applied or not.
+ *          RD_KAFKA_RESP_ERR__FATAL is returned if the consumer has raised
+ *          a fatal error.
+ */
+RD_EXPORT rd_kafka_resp_err_t
+rd_kafka_incremental_assign (rd_kafka_t *rk,
+                             const rd_kafka_topic_partition_list_t *partitions);
+
+
+/**
+ * @brief Incrementally remove \p partitions from the current assignment.
+ *
+ * If a COOPERATIVE assignor (i.e. incremental rebalancing) is being used,
+ * this method should be used in a rebalance callback to adjust the current
+ * assignmnet appropriately in the case where the rebalance type is
+ * RD_KAFKA_RESP_ERR__REVOKE_PARTITIONS. The application must pass the
+ * partition list passed to the callback (or a copy of it), even if the
+ * list is empty. \p partitions must not be NULL. This method may also be
+ * used outside the context of a rebalance callback.
+ *
+ * @returns An error code indicating if the new assignment was applied or not.
+ *          RD_KAFKA_RESP_ERR__FATAL is returned if the consumer has raised
+ *          a fatal error.
+ */
+RD_EXPORT rd_kafka_resp_err_t
+rd_kafka_incremental_unassign (rd_kafka_t *rk,
+                               const rd_kafka_topic_partition_list_t *partitions);
+
 
 /**
  * @brief Atomic assignment of partitions to consume.
  *
  * The new \p partitions will replace the existing assignment.
  *
- * When used from a rebalance callback the application shall pass the
- * partition list passed to the callback (or a copy of it) (even if the list
- * is empty) rather than NULL to maintain internal join state.
-
  * A zero-length \p partitions will treat the partitions as a valid,
- * albeit empty, assignment, and maintain internal state, while a \c NULL
+ * albeit empty assignment, and maintain internal state, while a \c NULL
  * value for \p partitions will reset and clear the internal state.
+ *
+ * When used from a rebalance callback, the application shall pass the
+ * partition list passed to the callback (or a copy of it) even if the list
+ * is empty (i.e. should not pass NULL in this case) so as to maintain
+ * internal join state.
  *
  * @returns An error code indicating if the new assignment was applied or not.
  *          RD_KAFKA_RESP_ERR__FATAL is returned if the consumer has raised

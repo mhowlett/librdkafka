@@ -2413,6 +2413,10 @@ public:
    */
   virtual ErrorCode unassign () = 0;
 
+  virtual ErrorCode incremental_assign (const std::vector<TopicPartition*> &partitions) = 0;
+
+  virtual ErrorCode incremental_unassign (const std::vector<TopicPartition*> &partitions) = 0;
+
   /**
    * @brief Consume message or get error event, triggers callbacks.
    *
