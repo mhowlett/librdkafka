@@ -102,6 +102,8 @@ typedef enum {
         RD_KAFKA_OP_COORD_QUERY,     /* Query for coordinator */
         RD_KAFKA_OP_SUBSCRIBE,       /* New subscription */
         RD_KAFKA_OP_ASSIGN,          /* New assignment */
+        RD_KAFKA_OP_INCR_ASSIGN,     /* Incremental assignment */
+        RD_KAFKA_OP_INCR_UNASSIGN,   /* Incremental unassignment */
         RD_KAFKA_OP_GET_SUBSCRIPTION,/* Get current subscription.
 				      * Reuses u.subscribe */
         RD_KAFKA_OP_GET_ASSIGNMENT,  /* Get current assignment.

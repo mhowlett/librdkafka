@@ -33,32 +33,108 @@
 #include "testcpp.h"
 
 /**
- * The beginnings of an integration test for cooperative rebalancing.
- * MH: what i'm currently using to debug with.
+ * MH: what i'm currently using to debug with. Not finished.
  */
+
+
+class ExampleRebalanceCb : public RdKafka::RebalanceCb {
+private:
+  static void part_list_print (const std::vector<RdKafka::TopicPartition*>&partitions){
+    for (unsigned int i = 0 ; i < partitions.size() ; i++)
+      std::cerr << partitions[i]->topic() <<
+	"[" << partitions[i]->partition() << "], ";
+    std::cerr << "\n";
+  }
+
+public:
+  void rebalance_cb (RdKafka::KafkaConsumer *consumer,
+		     RdKafka::ErrorCode err,
+                     std::vector<RdKafka::TopicPartition*> &partitions) {
+    std::cerr << "RebalanceCb: " << RdKafka::err2str(err) << ": ";
+
+    part_list_print(partitions);
+
+    if (err == RdKafka::ERR__ASSIGN_PARTITIONS) {
+      consumer->incremental_assign(partitions);
+//      partition_cnt = (int)partitions.size();
+    } else {
+      consumer->unassign();
+//      partition_cnt = 0;
+    }
+//    eof_cnt = 0;
+  }
+};
+
+
+static void no_subscribe_test(RdKafka::KafkaConsumer *c1, std::string &t1, std::string &t2) {
+  std::vector<RdKafka::TopicPartition *> assignment;
+
+  std::vector<RdKafka::TopicPartition *> toppars1;
+  toppars1.push_back(RdKafka::TopicPartition::create(t1, 0,
+                                                     RdKafka::Topic::OFFSET_BEGINNING));
+  c1->incremental_assign(toppars1);
+  c1->assignment(assignment);
+  RdKafka::Message *m = c1->consume(5000);
+  m = c1->consume(5000);
+
+  c1->incremental_unassign(toppars1);
+  c1->assignment(assignment);
+  // m = c1->consume(5000);
+
+  std::vector<RdKafka::TopicPartition *> toppars2;
+  toppars2.push_back(RdKafka::TopicPartition::create(t2, 0,
+                                                     RdKafka::Topic::OFFSET_BEGINNING));
+  c1->incremental_assign(toppars2);
+  c1->assignment(assignment);
+  m = c1->consume(5000);
+
+  c1->incremental_assign(toppars1);
+  c1->assignment(assignment);
+  m = c1->consume(5000);
+
+  c1->incremental_unassign(toppars2);
+  c1->incremental_unassign(toppars1);
+}
 
 
 extern "C" {
   int main_0112_cooperative_rebalance (int argc, char **argv) {
+    int msgcnt = 1000;
+    const int msgsize = 100;
 
-    std::string topic_str = Test::mk_topic_name("0112-cooperative_rebalance", 1);
+    std::string topic1_str = Test::mk_topic_name("0112-cooperative_rebalance", 1);
+    test_create_topic(NULL, topic1_str.c_str(), 1, 1);
+    test_produce_msgs_easy_size(topic1_str.c_str(), 0, 0, msgcnt, msgsize);
+
+    std::string topic2_str = Test::mk_topic_name("0112-cooperative_rebalance", 1);
+    test_create_topic(NULL, topic2_str.c_str(), 1, 1);
+    test_produce_msgs_easy_size(topic2_str.c_str(), 0, 0, msgcnt, msgsize);
 
     /* Create consumer 1 */
     RdKafka::Conf *conf;
     Test::conf_init(&conf, NULL, 20);
-    Test::conf_set(conf, "group.id", topic_str);
+    Test::conf_set(conf, "group.id", topic1_str); // this is different every time.
+    Test::conf_set(conf, "auto.offset.reset", "earliest");
     std::string bootstraps;
     if (conf->get("bootstrap.servers", bootstraps) != RdKafka::Conf::CONF_OK)
       Test::Fail("Failed to retrieve bootstrap.servers");
+    ExampleRebalanceCb ex_rebalance_cb;
     std::string errstr;
+    conf->set("rebalance_cb", &ex_rebalance_cb, errstr);
     RdKafka::KafkaConsumer *c1 = RdKafka::KafkaConsumer::create(conf, errstr);
     if (!c1)
       Test::Fail("Failed to create KafkaConsumer: " + errstr);
     delete conf;
 
+    no_subscribe_test(c1, topic1_str, topic2_str);
+
+    c1->close();
+    delete c1;
+    return 0;
+
     /* Create consumer 2 */
     Test::conf_init(&conf, NULL, 20);
-    Test::conf_set(conf, "group.id", topic_str);
+    Test::conf_set(conf, "group.id", topic1_str);
     if (conf->get("bootstrap.servers", bootstraps) != RdKafka::Conf::CONF_OK)
       Test::Fail("Failed to retrieve bootstrap.servers");
     RdKafka::KafkaConsumer *c2 = RdKafka::KafkaConsumer::create(conf, errstr);
@@ -67,13 +143,13 @@ extern "C" {
     delete conf;
 
     /* Create topics */
-    Test::create_topic(c1, topic_str.c_str(), 1, 1);
+    Test::create_topic(c1, topic1_str.c_str(), 1, 1);
 
     /*
     * Consumer #1 subscribe
     */
     std::vector<std::string> topics;
-    topics.push_back(topic_str);
+    topics.push_back(topic1_str);
     RdKafka::ErrorCode err;
     if ((err = c1->subscribe(topics)))
       Test::Fail("consumer 1 subscribe failed: " + RdKafka::err2str(err));
@@ -97,7 +173,7 @@ extern "C" {
         case RdKafka::ERR__TIMED_OUT:
         case RdKafka::ERR_NO_ERROR:
         default:
-          run = false;
+          // run = false;
           break;
         }
     }
