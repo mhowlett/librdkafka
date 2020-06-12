@@ -256,12 +256,8 @@ void rd_kafka_op_destroy (rd_kafka_op_t *rko) {
 
 	case RD_KAFKA_OP_ASSIGN:
 	case RD_KAFKA_OP_GET_ASSIGNMENT:
-                // MH: TODO: need to justify this if(). may leak memory.
-                if (rko->rko_type == RD_KAFKA_OP_GET_ASSIGNMENT &&
-                    rko->rko_u.assign.type != RD_KAFKA_ASSIGN_TYPE_INCR_UNASSIGN) {
-		        RD_IF_FREE(rko->rko_u.assign.partitions,
+		RD_IF_FREE(rko->rko_u.assign.partitions,
 			           rd_kafka_topic_partition_list_destroy);
-                }
 		break;
 
 	case RD_KAFKA_OP_REBALANCE:

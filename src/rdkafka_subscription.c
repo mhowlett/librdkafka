@@ -118,7 +118,7 @@ rd_kafka_assign0 (rd_kafka_t *rk,
 rd_kafka_resp_err_t
 rd_kafka_assign (rd_kafka_t *rk,
                  const rd_kafka_topic_partition_list_t *partitions) {
-        return rd_kafka_assign0(rk, RD_KAFKA_ASSIGN_TYPE_ASSIGN, partitions);
+        return rd_kafka_assign0(rk, RD_KAFKA_ASSIGN_METHOD_ASSIGN, partitions);
 }
 
 
@@ -131,10 +131,13 @@ rd_kafka_incremental_assign (rd_kafka_t *rk,
         if (!partitions)
                 err = RD_KAFKA_RESP_ERR__INVALID_ARG;
         else
-                err = rd_kafka_assign0(rk, RD_KAFKA_ASSIGN_TYPE_INCR_ASSIGN, partitions);
+                err = rd_kafka_assign0(rk,
+                                       RD_KAFKA_ASSIGN_METHOD_INCR_ASSIGN,
+                                       partitions);
 
         if (err)
-                return rd_kafka_error_new(err, "Incremental assign failed: %s",
+                return rd_kafka_error_new(err,
+                                          "Incremental assign failed: %s",
                                           rd_kafka_err2str(err));
 
         return NULL;
@@ -150,10 +153,13 @@ rd_kafka_incremental_unassign (rd_kafka_t *rk,
         if (!partitions)
                 err = RD_KAFKA_RESP_ERR__INVALID_ARG;
         else
-                err = rd_kafka_assign0(rk, RD_KAFKA_ASSIGN_TYPE_INCR_UNASSIGN, partitions);
+                err = rd_kafka_assign0(rk,
+                                       RD_KAFKA_ASSIGN_METHOD_INCR_UNASSIGN,
+                                       partitions);
 
         if (err)
-                return rd_kafka_error_new(err, "Incremental unassign failed: %s",
+                return rd_kafka_error_new(err,
+                                          "Incremental unassign failed: %s",
                                           rd_kafka_err2str(err));
 
         return NULL;
