@@ -102,8 +102,6 @@ typedef enum {
         RD_KAFKA_OP_COORD_QUERY,     /* Query for coordinator */
         RD_KAFKA_OP_SUBSCRIBE,       /* New subscription */
         RD_KAFKA_OP_ASSIGN,          /* New assignment */
-        RD_KAFKA_OP_INCR_ASSIGN,     /* Incremental assignment */
-        RD_KAFKA_OP_INCR_UNASSIGN,   /* Incremental unassignment */
         RD_KAFKA_OP_GET_SUBSCRIPTION,/* Get current subscription.
 				      * Reuses u.subscribe */
         RD_KAFKA_OP_GET_ASSIGNMENT,  /* Get current assignment.
@@ -194,6 +192,15 @@ typedef rd_kafka_op_res_t
         RD_WARN_UNUSED_RESULT;
 
 /**
+ * @brief Enumerates the assign op sub-types.
+ */
+typedef enum {
+        RD_KAFKA_ASSIGN_TYPE_ASSIGN,
+        RD_KAFKA_ASSIGN_TYPE_INCR_ASSIGN,
+        RD_KAFKA_ASSIGN_TYPE_INCR_UNASSIGN
+} rd_kafka_assign_t;
+
+/**
  * @brief Op callback type
  */
 typedef rd_kafka_op_res_t (rd_kafka_op_cb_t) (rd_kafka_t *rk,
@@ -277,6 +284,7 @@ struct rd_kafka_op_s {
 
 		struct {
 			rd_kafka_topic_partition_list_t *partitions;
+                        rd_kafka_assign_t type;
 		} assign; /* also used for GET_ASSIGNMENT */
 
 		struct {

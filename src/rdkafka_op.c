@@ -65,8 +65,6 @@ const char *rd_kafka_op2str (rd_kafka_op_type_t type) {
                 [RD_KAFKA_OP_COORD_QUERY] = "REPLY:COORD_QUERY",
                 [RD_KAFKA_OP_SUBSCRIBE] = "REPLY:SUBSCRIBE",
                 [RD_KAFKA_OP_ASSIGN] = "REPLY:ASSIGN",
-                [RD_KAFKA_OP_INCR_ASSIGN] = "REPLY:INCR_ASSIGN",
-                [RD_KAFKA_OP_INCR_UNASSIGN] = "REPLY:INCR_UNASSIGN",
                 [RD_KAFKA_OP_GET_SUBSCRIPTION] = "REPLY:GET_SUBSCRIPTION",
                 [RD_KAFKA_OP_GET_ASSIGNMENT] = "REPLY:GET_ASSIGNMENT",
                 [RD_KAFKA_OP_THROTTLE] = "REPLY:THROTTLE",
@@ -191,8 +189,6 @@ rd_kafka_op_t *rd_kafka_op_new0 (const char *source, rd_kafka_op_type_t type) {
                 [RD_KAFKA_OP_COORD_QUERY] = 0,
                 [RD_KAFKA_OP_SUBSCRIBE] = sizeof(rko->rko_u.subscribe),
                 [RD_KAFKA_OP_ASSIGN] = sizeof(rko->rko_u.assign),
-                [RD_KAFKA_OP_INCR_ASSIGN] = sizeof(rko->rko_u.assign),
-                [RD_KAFKA_OP_INCR_UNASSIGN] = sizeof(rko->rko_u.assign),
                 [RD_KAFKA_OP_GET_SUBSCRIPTION] = sizeof(rko->rko_u.subscribe),
                 [RD_KAFKA_OP_GET_ASSIGNMENT] = sizeof(rko->rko_u.assign),
                 [RD_KAFKA_OP_THROTTLE] = sizeof(rko->rko_u.throttle),
@@ -259,10 +255,13 @@ void rd_kafka_op_destroy (rd_kafka_op_t *rko) {
 		break;
 
 	case RD_KAFKA_OP_ASSIGN:
-        case RD_KAFKA_OP_INCR_ASSIGN:
 	case RD_KAFKA_OP_GET_ASSIGNMENT:
-		RD_IF_FREE(rko->rko_u.assign.partitions,
-			   rd_kafka_topic_partition_list_destroy);
+                // MH: TODO: need to justify this if(). may leak memory.
+                if (rko->rko_type == RD_KAFKA_OP_GET_ASSIGNMENT &&
+                    rko->rko_u.assign.type != RD_KAFKA_ASSIGN_TYPE_INCR_UNASSIGN) {
+		        RD_IF_FREE(rko->rko_u.assign.partitions,
+			           rd_kafka_topic_partition_list_destroy);
+                }
 		break;
 
 	case RD_KAFKA_OP_REBALANCE:

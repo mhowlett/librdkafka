@@ -3509,8 +3509,6 @@ rd_kafka_cgrp_op_serve (rd_kafka_t *rk, rd_kafka_q_t *rkq,
                 break;
 
         case RD_KAFKA_OP_ASSIGN:
-        case RD_KAFKA_OP_INCR_ASSIGN:
-        case RD_KAFKA_OP_INCR_UNASSIGN:
                 err = 0;
                 if (rkcg->rkcg_flags & RD_KAFKA_CGRP_F_TERMINATE) {
                         /* Treat all assignments as unassign
@@ -3519,19 +3517,19 @@ rd_kafka_cgrp_op_serve (rd_kafka_t *rk, rd_kafka_q_t *rkq,
                         if (rko->rko_u.assign.partitions)
                                 err = RD_KAFKA_RESP_ERR__DESTROY;
                 } else {
-                        switch (rko->rko_type)
+                        switch (rko->rko_u.assign.type)
                         {
-                        case RD_KAFKA_OP_ASSIGN:
+                        case RD_KAFKA_ASSIGN_TYPE_ASSIGN:
                                 /* New atomic assignment (payload != NULL),
                                  * or unassignment (payload == NULL) */
                                 err = rd_kafka_cgrp_assign(rkcg,
                                         rko->rko_u.assign.partitions);
                                 break;
-                        case RD_KAFKA_OP_INCR_ASSIGN:
+                        case RD_KAFKA_ASSIGN_TYPE_INCR_ASSIGN:
                                 err = rd_kafka_cgrp_incremental_assign(rkcg,
                                         rko->rko_u.assign.partitions);
                                 break;
-                        case RD_KAFKA_OP_INCR_UNASSIGN:
+                        case RD_KAFKA_ASSIGN_TYPE_INCR_UNASSIGN:
                                 err = rd_kafka_cgrp_incremental_unassign(rkcg,
                                         rko->rko_u.assign.partitions);
                                 break;
