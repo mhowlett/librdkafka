@@ -3652,8 +3652,11 @@ rd_kafka_resp_err_t rd_kafka_consumer_close (rd_kafka_t *rk);
  * @returns An error code indicating if the new assignment was applied or not.
  *          RD_KAFKA_RESP_ERR__FATAL is returned if the consumer has raised
  *          a fatal error.
+ *
+ * @remark The returned error object (if not NULL) must be destroyed with
+ *         rd_kafka_error_destroy().
  */
-RD_EXPORT rd_kafka_resp_err_t
+RD_EXPORT rd_kafka_error_t *
 rd_kafka_incremental_assign (rd_kafka_t *rk,
                              const rd_kafka_topic_partition_list_t *partitions);
 
@@ -3672,8 +3675,11 @@ rd_kafka_incremental_assign (rd_kafka_t *rk,
  * @returns An error code indicating if the new assignment was applied or not.
  *          RD_KAFKA_RESP_ERR__FATAL is returned if the consumer has raised
  *          a fatal error.
+ *
+ * @remark The returned error object (if not NULL) must be destroyed with
+ *         rd_kafka_error_destroy().
  */
-RD_EXPORT rd_kafka_resp_err_t
+RD_EXPORT rd_kafka_error_t *
 rd_kafka_incremental_unassign (rd_kafka_t *rk,
                                const rd_kafka_topic_partition_list_t *partitions);
 
