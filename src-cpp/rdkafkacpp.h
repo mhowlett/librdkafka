@@ -2413,9 +2413,39 @@ public:
    */
   virtual ErrorCode unassign () = 0;
 
-  virtual ErrorCode incremental_assign (const std::vector<TopicPartition*> &partitions) = 0;
+  /**
+   * @brief Incrementally add \p partitions to the current assignment.
+   *
+   * If a COOPERATIVE assignor (i.e. incremental rebalancing) is being used,
+   * this method should be used in a rebalance callback to adjust the current
+   * assignmnet appropriately in the case where the rebalance type is
+   * ERR__ASSIGN_PARTITIONS. The application must pass the partition list
+   * passed to the callback (or a copy of it), even if the list is empty.
+   * This method may also be used outside the context of a rebalance callback.
+   *
+   * @returns An error code indicating if the new assignment was applied or not.
+   *          ERR__FATAL is returned if the consumer has raised a fatal error.
+   *
+   * @remark The returned object must be deleted by the application.
+   */
+  virtual Error *incremental_assign (const std::vector<TopicPartition*> &partitions) = 0;
 
-  virtual ErrorCode incremental_unassign (const std::vector<TopicPartition*> &partitions) = 0;
+/**
+ * @brief Incrementally remove \p partitions from the current assignment.
+ *
+ * If a COOPERATIVE assignor (i.e. incremental rebalancing) is being used,
+ * this method should be used in a rebalance callback to adjust the current
+ * assignmnet appropriately in the case where the rebalance type is
+ * ERR__REVOKE_PARTITIONS. The application must pass the partition list
+ * passed to the callback (or a copy of it), even if the list is empty.
+ * This method may also be used outside the context of a rebalance callback.
+ *
+ * @returns An error indicating if the new assignment was applied or not.
+ *          ERR__FATAL is returned if the consumer has raised a fatal error.
+ *
+ * @remark The returned object must be deleted by the application.
+ */
+  virtual Error *incremental_unassign (const std::vector<TopicPartition*> &partitions) = 0;
 
   /**
    * @brief Consume message or get error event, triggers callbacks.

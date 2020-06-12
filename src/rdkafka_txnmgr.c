@@ -2566,7 +2566,7 @@ rd_bool_t rd_kafka_txn_coord_query (rd_kafka_t *rk, const char *reason) {
  *
  * @returns true if the coordinator was changed, else false.
  *
- * @locality rd_kafka_thread_main
+ * @locality rdkafka main thread
  * @locks rd_kafka_wrlock(rk) MUST be held
  */
 rd_bool_t rd_kafka_txn_coord_set (rd_kafka_t *rk, rd_kafka_broker_t *rkb,
