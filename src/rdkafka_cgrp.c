@@ -3534,6 +3534,7 @@ rd_kafka_cgrp_op_serve (rd_kafka_t *rk, rd_kafka_q_t *rkq,
                                         rko->rko_u.assign.partitions);
                                 break;
                         default:
+                                rd_assert(0);
                                 break;
                         }
                 }

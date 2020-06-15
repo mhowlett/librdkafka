@@ -145,7 +145,7 @@ static void direct_assign_test_3(RdKafka::KafkaConsumer *consumer,
 
 /** multi-topic incremental assign and unassign + message consumption.
  */
-static void direct_assign_test_4(RdKafka::KafkaConsumer *consumer,
+static void direct_assign_test_5(RdKafka::KafkaConsumer *consumer,
                                  std::vector<RdKafka::TopicPartition *> toppars1,
                                  std::vector<RdKafka::TopicPartition *> toppars2) {
   std::vector<RdKafka::TopicPartition *> assignment;
@@ -182,6 +182,29 @@ static void direct_assign_test_4(RdKafka::KafkaConsumer *consumer,
 
   consumer->incremental_unassign(toppars2);
   consumer->incremental_unassign(toppars1);
+  consumer->assignment(assignment);
+  test_assert(assignment.size() == 0, "Expecting current assignment to have size 0");
+}
+
+
+
+/** assign / unassign + consume.
+ */
+static void direct_assign_test_4(RdKafka::KafkaConsumer *consumer,
+                                 std::vector<RdKafka::TopicPartition *> toppars1,
+                                 std::vector<RdKafka::TopicPartition *> toppars2) {
+  std::vector<RdKafka::TopicPartition *> assignment;
+
+  consumer->assign(toppars1);
+  consumer->assignment(assignment);
+  test_assert(assignment.size() == 1, "Expecting current assignment to have size 1");
+  RdKafka::Message *m = consumer->consume(5000);
+  m = consumer->consume(5000);
+  RdKafka::ErrorCode e = m->err();
+  test_assert(m->err() == RdKafka::ErrorCode::ERR_NO_ERROR, "Expecting a consumed message.");
+  test_assert(m->len() == 100, "Expecting msg len to be 100"); // implies read from topic 1.
+
+  consumer->unassign();
   consumer->assignment(assignment);
   test_assert(assignment.size() == 0, "Expecting current assignment to have size 0");
 }
@@ -230,10 +253,12 @@ extern "C" {
     test_create_topic(NULL, topic2_str.c_str(), 1, 1);
     test_produce_msgs_easy_size(topic2_str.c_str(), 0, 0, msgcnt, msgsize2);
 
+    // todo: test empty.
     // run_test(topic1_str, topic2_str, direct_assign_test_1);
     // run_test(topic1_str, topic2_str, direct_assign_test_2);
     // run_test(topic1_str, topic2_str, direct_assign_test_3);
     run_test(topic1_str, topic2_str, direct_assign_test_4);
+    run_test(topic1_str, topic2_str, direct_assign_test_5);
 
     // /* Create consumer 2 */
     // Test::conf_init(&conf, NULL, 20);
