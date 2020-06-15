@@ -193,9 +193,7 @@ RdKafka::KafkaConsumerImpl::incremental_assign (const std::vector<TopicPartition
   rd_kafka_error_t *c_error;
 
   c_parts = partitions_to_c_parts(partitions);
-
   c_error = rd_kafka_incremental_assign(rk_, c_parts);
-
   rd_kafka_topic_partition_list_destroy(c_parts);
 
   if (c_error)
@@ -211,9 +209,7 @@ RdKafka::KafkaConsumerImpl::incremental_unassign (const std::vector<TopicPartiti
   rd_kafka_error_t *c_error;
 
   c_parts = partitions_to_c_parts(partitions);
-
   c_error = rd_kafka_incremental_unassign(rk_, c_parts);
-
   rd_kafka_topic_partition_list_destroy(c_parts);
 
   if (c_error)
