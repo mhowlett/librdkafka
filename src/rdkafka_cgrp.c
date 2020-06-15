@@ -2396,7 +2396,6 @@ rd_kafka_cgrp_assigned_offsets_commit (rd_kafka_cgrp_t *rkcg,
                                        const rd_kafka_topic_partition_list_t
                                        *offsets, const char *reason) {
         rd_kafka_op_t *rko;
-
 	rko = rd_kafka_op_new(RD_KAFKA_OP_OFFSET_COMMIT);
         rko->rko_u.offset_commit.reason = rd_strdup(reason);
 	if (rkcg->rkcg_rk->rk_conf.enabled_events & RD_KAFKA_EVENT_OFFSET_COMMIT) {
@@ -2516,6 +2515,7 @@ rd_kafka_cgrp_incremental_assign (rd_kafka_cgrp_t *rkcg,
                                             rktpar->topic,
                                             rktpar->partition,
                                             0/*no-ua*/, 1/*create-on-miss*/);
+                rd_kafka_toppar_keep(rktp);
                 if (!rktp)
                         /* LOG_ERR already emitted */
                         continue;
