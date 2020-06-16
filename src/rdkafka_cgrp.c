@@ -4057,47 +4057,63 @@ rd_kafka_consumer_group_metadata_t *
 rd_kafka_consumer_group_metadata_new (const char *group_id) {
         rd_kafka_consumer_group_metadata_t *cgmetadata;
 
-        cgmetadata = rd_kafka_consumer_group_metadata_new_with_genid(group_id,
-                                                                     -1);
+        cgmetadata = rd_kafka_consumer_group_metadata_new0(group_id,
+                                                           -1, "", NULL);
 
         return cgmetadata;
 }
 
 rd_kafka_consumer_group_metadata_t *
-rd_kafka_consumer_group_metadata_new_with_genid (const char *group_id,
-                                                 int32_t generation_id) {
+rd_kafka_consumer_group_metadata_new0 (const char *group_id,
+                                       int32_t generation_id,
+                                       const char *member_id,
+                                       const char *group_instance_id) {
         rd_kafka_consumer_group_metadata_t *cgmetadata;
 
-        if (!group_id)
-                return NULL;
+        rd_assert(group_id);
+        rd_assert(member_id);
 
         cgmetadata = rd_calloc(1, sizeof(*cgmetadata));
         cgmetadata->group_id = rd_strdup(group_id);
         cgmetadata->generation_id = generation_id;
+        cgmetadata->member_id = rd_strdup(member_id);
+        if (group_instance_id)
+                cgmetadata->group_instance_id = rd_strdup(group_instance_id);
+        else
+                cgmetadata->group_instance_id = NULL;
 
         return cgmetadata;
 }
 
 rd_kafka_consumer_group_metadata_t *
 rd_kafka_consumer_group_metadata (rd_kafka_t *rk) {
-        int32_t generation_id = -1;
+        char *member_id;
+        rd_kafka_consumer_group_metadata_t *result;
 
         if (rk->rk_type != RD_KAFKA_CONSUMER ||
-            !rk->rk_conf.group_id_str)
+            !rk->rk_conf.group_id_str ||
+            !rk->rk_cgrp ||
+            !rk->rk_cgrp->rkcg_member_id)
                 return NULL;
 
-        if (rk->rk_cgrp)
-                generation_id = rk->rk_cgrp->rkcg_generation_id;
-
-        return rd_kafka_consumer_group_metadata_new_with_genid(
+        RD_KAFKAP_STR_DUPA(&member_id, rk->rk_cgrp->rkcg_member_id);
+        result = rd_kafka_consumer_group_metadata_new0(
                 rk->rk_conf.group_id_str,
-                generation_id);
+                rk->rk_cgrp->rkcg_generation_id,
+                member_id,
+                rk->rk_conf.group_instance_id);
+        rd_free(member_id);
+
+        return result;
 }
 
 void
 rd_kafka_consumer_group_metadata_destroy (
         rd_kafka_consumer_group_metadata_t *cgmetadata) {
         rd_free(cgmetadata->group_id);
+        rd_free(cgmetadata->member_id);
+        if (cgmetadata->group_instance_id)
+                rd_free(cgmetadata->group_instance_id);
         rd_free(cgmetadata);
 }
 
@@ -4109,14 +4125,17 @@ rd_kafka_consumer_group_metadata_dup (
         ret = rd_calloc(1, sizeof(*cgmetadata));
         ret->group_id = rd_strdup(cgmetadata->group_id);
         ret->generation_id = cgmetadata->generation_id;
+        ret->member_id = rd_strdup(cgmetadata->member_id);
+        ret->group_instance_id = cgmetadata->group_instance_id
+                ? rd_strdup(cgmetadata->group_instance_id)
+                : NULL;
 
         return ret;
 }
 
-
 /*
  * Consumer group metadata serialization format v1:
- *  "CGMDv1:"<group_id>"\0"
+ *  "CGMDv2:"<group_id>"\0"
  * Where <group_id> is the group_id string.
  */
 static const char rd_kafka_consumer_group_metadata_magic[7] = "CGMDv2:";
@@ -4130,8 +4149,16 @@ rd_kafka_error_t *rd_kafka_consumer_group_metadata_write (
         size_t magic_len = sizeof(rd_kafka_consumer_group_metadata_magic);
         size_t groupid_len = strlen(cgmd->group_id) + 1;
         size_t generationid_len = sizeof(cgmd->generation_id);
+        size_t member_id_len = strlen(cgmd->member_id) + 1;
+        int8_t group_instance_id_is_null = cgmd->group_instance_id ? 0 : 1;
+        size_t group_instance_id_is_null_len = sizeof(group_instance_id_is_null);
+        size_t group_instance_id_len = cgmd->group_instance_id
+                ? strlen(cgmd->group_instance_id) + 1 : 0;
 
-        size = magic_len + groupid_len + generationid_len;
+        size = magic_len + groupid_len + generationid_len + member_id_len +
+               group_instance_id_is_null_len +
+               (group_instance_id_is_null ? 0 : group_instance_id_len);
+
         buf = rd_malloc(size);
 
         memcpy(buf, rd_kafka_consumer_group_metadata_magic, magic_len);
@@ -4141,6 +4168,16 @@ rd_kafka_error_t *rd_kafka_consumer_group_metadata_write (
         of += generationid_len;
 
         memcpy(buf+of, cgmd->group_id, groupid_len);
+        of += groupid_len;
+
+        memcpy(buf+of, cgmd->member_id, member_id_len);
+        of += member_id_len;
+
+        memcpy(buf+of, &group_instance_id_is_null, group_instance_id_is_null_len);
+        of += group_instance_id_is_null_len;
+
+        if (!group_instance_id_is_null)
+                memcpy(buf+of, cgmd->group_instance_id, group_instance_id_len);
 
         *bufferp = buf;
         *sizep = size;
@@ -4153,14 +4190,21 @@ rd_kafka_error_t *rd_kafka_consumer_group_metadata_read (
         rd_kafka_consumer_group_metadata_t **cgmdp,
         const void *buffer, size_t size) {
         size_t magic_len = sizeof(rd_kafka_consumer_group_metadata_magic);
+        const char *buf = (const char *)buffer;
+        size_t of = 0;
+        const char *group_id;
+        size_t group_id_len;
         int32_t generation_id;
         size_t generationid_len = sizeof(generation_id);
-        const char *buf = (const char *)buffer;
-        const char *end = buf + size;
-        const char *group_id;
-        const char *s;
+        const char *member_id;
+        size_t member_id_len;
+        int8_t group_instance_id_is_null;
+        size_t group_instance_id_is_null_len
+                = sizeof(group_instance_id_is_null);
+        const char *group_instance_id;
+        size_t group_instance_id_len;
 
-        if (size < magic_len + generationid_len + 1)
+        if (size < magic_len + generationid_len + 1 + 1 + 1)
                 return rd_kafka_error_new(RD_KAFKA_RESP_ERR__BAD_MSG,
                                           "Input buffer is too short");
 
@@ -4169,79 +4213,137 @@ rd_kafka_error_t *rd_kafka_consumer_group_metadata_read (
                         RD_KAFKA_RESP_ERR__BAD_MSG,
                         "Input buffer is not a serialized "
                         "consumer group metadata object");
+        of += magic_len;
 
         memcpy(&generation_id, buf+magic_len, generationid_len);
+        of += generationid_len;
 
-        group_id = buf + magic_len + generationid_len;
-
-        /* Check that group_id is safe */
-        for (s = group_id ; s < end - 1 ; s++) {
-                if (!isprint((int)*s))
-                        return rd_kafka_error_new(
-                                RD_KAFKA_RESP_ERR__BAD_MSG,
-                                "Input buffer group id is not safe");
-        }
-
-        if (*s != '\0')
+        group_id_len = strnlen(buf + of, size - of);
+        if (group_id_len == size - of)
                 return rd_kafka_error_new(
                         RD_KAFKA_RESP_ERR__BAD_MSG,
-                        "Input buffer has invalid stop byte");
+                        "Premature end of buffer reading group_id");
+        group_id = buf + of;
+        of += group_id_len + 1;
 
-        /* We now know that group_id is printable-safe and is nul-terminated */
-        *cgmdp = rd_kafka_consumer_group_metadata_new_with_genid(group_id,
-                                                                 generation_id);
+        member_id_len = strnlen(buf + of, size - of);
+        if (member_id_len == size - of)
+                return rd_kafka_error_new(
+                        RD_KAFKA_RESP_ERR__BAD_MSG,
+                        "Premature end of buffer reading member_id");
+        member_id = buf + of;
+        of += member_id_len + 1;
+
+        memcpy(&group_instance_id_is_null, buf + of,
+               group_instance_id_is_null_len);
+        of += group_instance_id_is_null_len;
+        if (group_instance_id_is_null) {
+                group_instance_id = NULL;
+                if (of != size)
+                        return rd_kafka_error_new(
+                                RD_KAFKA_RESP_ERR__BAD_MSG,
+                                "Expected end of buffer reading "
+                                "group_instance_id_is_null");
+        } else {
+                group_instance_id_len = strnlen(buf + of, size - of);
+                if (group_instance_id_len != size - of - 1)
+                        return rd_kafka_error_new(
+                                RD_KAFKA_RESP_ERR__BAD_MSG,
+                                "Input buffer has invalid stop byte");
+                group_instance_id = buf + of;
+        }
+
+        *cgmdp = rd_kafka_consumer_group_metadata_new0(group_id,
+                                                       generation_id,
+                                                       member_id,
+                                                       group_instance_id);
 
         return NULL;
 }
 
 
-static int unittest_consumer_group_metadata (void) {
+static int unittest_iteration(const char *group_id,
+                          int32_t generation_id,
+                          const char *member_id,
+                          const char *group_instance_id) {
         rd_kafka_consumer_group_metadata_t *cgmd;
-        const char *group_ids[] = {
+        void *buffer, *buffer2;
+        size_t size, size2;
+        rd_kafka_error_t *error;
+
+        cgmd = rd_kafka_consumer_group_metadata_new0(group_id,
+                                                     generation_id,
+                                                     member_id,
+                                                     group_instance_id);
+        RD_UT_ASSERT(cgmd != NULL, "failed to create metadata");
+
+        error = rd_kafka_consumer_group_metadata_write(cgmd, &buffer,
+                                                        &size);
+        RD_UT_ASSERT(!error, "metadata_write failed: %s",
+                        rd_kafka_error_string(error));
+
+        rd_kafka_consumer_group_metadata_destroy(cgmd);
+
+        cgmd = NULL;
+        error = rd_kafka_consumer_group_metadata_read(&cgmd, buffer,
+                                                        size);
+        RD_UT_ASSERT(!error, "metadata_read failed: %s",
+                        rd_kafka_error_string(error));
+
+        /* Serialize again and compare buffers */
+        error = rd_kafka_consumer_group_metadata_write(cgmd, &buffer2,
+                                                        &size2);
+        RD_UT_ASSERT(!error, "metadata_write failed: %s",
+                        rd_kafka_error_string(error));
+
+        RD_UT_ASSERT(size == size2 && !memcmp(buffer, buffer2, size),
+                        "metadata_read/write size or content mismatch: "
+                        "size %"PRIusz", size2 %"PRIusz,
+                        size, size2);
+
+        rd_kafka_consumer_group_metadata_destroy(cgmd);
+        rd_free(buffer);
+        rd_free(buffer2);
+
+        return 0;
+}
+
+
+static int unittest_consumer_group_metadata (void) {
+        const char *ids[] = {
                 "mY. group id:.",
                 "0",
                 "2222222222222222222222221111111111111111111111111111112222",
                 "",
+                "NULL",
                 NULL,
         };
-        int i;
+        int i, j, k, gen_id;
+        int ret;
+        const char *group_id;
+        const char *member_id;
+        const char *group_instance_id;
 
-        for (i = 0 ; group_ids[i] ; i++) {
-                const char *group_id = group_ids[i];
-                void *buffer, *buffer2;
-                size_t size, size2;
-                rd_kafka_error_t *error;
-
-                cgmd = rd_kafka_consumer_group_metadata_new(group_id);
-                RD_UT_ASSERT(cgmd != NULL, "failed to create metadata");
-
-                error = rd_kafka_consumer_group_metadata_write(cgmd, &buffer,
-                                                               &size);
-                RD_UT_ASSERT(!error, "metadata_write failed: %s",
-                             rd_kafka_error_string(error));
-
-                rd_kafka_consumer_group_metadata_destroy(cgmd);
-
-                cgmd = NULL;
-                error = rd_kafka_consumer_group_metadata_read(&cgmd, buffer,
-                                                              size);
-                RD_UT_ASSERT(!error, "metadata_read failed: %s",
-                             rd_kafka_error_string(error));
-
-                /* Serialize again and compare buffers */
-                error = rd_kafka_consumer_group_metadata_write(cgmd, &buffer2,
-                                                               &size2);
-                RD_UT_ASSERT(!error, "metadata_write failed: %s",
-                             rd_kafka_error_string(error));
-
-                RD_UT_ASSERT(size == size2 && !memcmp(buffer, buffer2, size),
-                             "metadata_read/write size or content mismatch: "
-                             "size %"PRIusz", size2 %"PRIusz,
-                             size, size2);
-
-                rd_kafka_consumer_group_metadata_destroy(cgmd);
-                rd_free(buffer);
-                rd_free(buffer2);
+        for (i = 0 ; ids[i] ; i++) {
+                for (j = 0; ids[j] ; j++) {
+                        for (k = 0; ids[k]; k++) {
+                                for (gen_id = -1; gen_id<1; gen_id++) {
+                                        group_id = ids[i];
+                                        member_id = ids[j];
+                                        group_instance_id = ids[k];
+                                        if (strcmp(group_instance_id,
+                                                   "NULL") == 0)
+                                                group_instance_id = NULL;
+                                        ret = unittest_iteration(
+                                                        group_id,
+                                                        gen_id,
+                                                        member_id,
+                                                        group_instance_id);
+                                        if (ret)
+                                                return ret;
+                                }
+                        }
+                }
         }
 
         RD_UT_PASS();
