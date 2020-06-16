@@ -112,6 +112,7 @@ const char *rd_kafka_cgrp_join_state_names[] = {
         "wait-metadata",
         "wait-sync",
         "wait-unassign",
+        "wait-incr-unassign",
         "wait-assign-rebalance_cb",
 	"wait-revoke-rebalance_cb",
         "assigned",
@@ -4057,17 +4058,19 @@ rd_kafka_consumer_group_metadata_t *
 rd_kafka_consumer_group_metadata_new (const char *group_id) {
         rd_kafka_consumer_group_metadata_t *cgmetadata;
 
-        cgmetadata = rd_kafka_consumer_group_metadata_new0(group_id,
-                                                           -1, "", NULL);
+        cgmetadata = rd_kafka_consumer_group_metadata_new_with_genid(group_id,
+                                                                     -1, "",
+                                                                     NULL);
 
         return cgmetadata;
 }
 
 rd_kafka_consumer_group_metadata_t *
-rd_kafka_consumer_group_metadata_new0 (const char *group_id,
-                                       int32_t generation_id,
-                                       const char *member_id,
-                                       const char *group_instance_id) {
+rd_kafka_consumer_group_metadata_new_with_genid (const char *group_id,
+                                                 int32_t generation_id,
+                                                 const char *member_id,
+                                                 const char
+                                                 *group_instance_id) {
         rd_kafka_consumer_group_metadata_t *cgmetadata;
 
         rd_assert(group_id);
@@ -4089,20 +4092,22 @@ rd_kafka_consumer_group_metadata_t *
 rd_kafka_consumer_group_metadata (rd_kafka_t *rk) {
         char *member_id;
         rd_kafka_consumer_group_metadata_t *result;
+        rd_kafka_cgrp_t *rkcg;
 
-        if (rk->rk_type != RD_KAFKA_CONSUMER ||
-            !rk->rk_conf.group_id_str ||
-            !rk->rk_cgrp ||
-            !rk->rk_cgrp->rkcg_member_id)
+        if (!(rkcg = rd_kafka_cgrp_get(rk)))
                 return NULL;
 
-        RD_KAFKAP_STR_DUPA(&member_id, rk->rk_cgrp->rkcg_member_id);
-        result = rd_kafka_consumer_group_metadata_new0(
+        member_id = rd_kafka_memberid(rk);
+
+        if (rk->rk_type != RD_KAFKA_CONSUMER ||
+            !rk->rk_conf.group_id_str || !member_id)
+                return NULL;
+
+        result = rd_kafka_consumer_group_metadata_new_with_genid(
                 rk->rk_conf.group_id_str,
                 rk->rk_cgrp->rkcg_generation_id,
                 member_id,
                 rk->rk_conf.group_instance_id);
-        rd_free(member_id);
 
         return result;
 }
@@ -4178,6 +4183,9 @@ rd_kafka_error_t *rd_kafka_consumer_group_metadata_write (
 
         if (!group_instance_id_is_null)
                 memcpy(buf+of, cgmd->group_instance_id, group_instance_id_len);
+        of += group_instance_id_len;
+
+        rd_assert(of == size);
 
         *bufferp = buf;
         *sizep = size;
@@ -4253,10 +4261,11 @@ rd_kafka_error_t *rd_kafka_consumer_group_metadata_read (
                 group_instance_id = buf + of;
         }
 
-        *cgmdp = rd_kafka_consumer_group_metadata_new0(group_id,
-                                                       generation_id,
-                                                       member_id,
-                                                       group_instance_id);
+        *cgmdp = rd_kafka_consumer_group_metadata_new_with_genid(
+                                                        group_id,
+                                                        generation_id,
+                                                        member_id,
+                                                        group_instance_id);
 
         return NULL;
 }
@@ -4271,10 +4280,11 @@ static int unittest_iteration(const char *group_id,
         size_t size, size2;
         rd_kafka_error_t *error;
 
-        cgmd = rd_kafka_consumer_group_metadata_new0(group_id,
-                                                     generation_id,
-                                                     member_id,
-                                                     group_instance_id);
+        cgmd = rd_kafka_consumer_group_metadata_new_with_genid(
+                                                        group_id,
+                                                        generation_id,
+                                                        member_id,
+                                                        group_instance_id);
         RD_UT_ASSERT(cgmd != NULL, "failed to create metadata");
 
         error = rd_kafka_consumer_group_metadata_write(cgmd, &buffer,
