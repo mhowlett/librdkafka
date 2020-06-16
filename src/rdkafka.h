@@ -3885,8 +3885,10 @@ rd_kafka_consumer_group_metadata_new (const char *group_id);
  *         rd_kafka_consumer_group_metadata_destroy().
  */
 RD_EXPORT rd_kafka_consumer_group_metadata_t *
-rd_kafka_consumer_group_metadata_new_with_genid (const char *group_id,
-                                                 int32_t generation_id);
+rd_kafka_consumer_group_metadata_new0 (const char *group_id,
+                                       int32_t generation_id,
+                                       const char *member_id,
+                                       const char *group_instance_id);
 
 
 /**
