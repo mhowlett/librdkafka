@@ -69,6 +69,7 @@ const char *rd_kafka_op2str (rd_kafka_op_type_t type) {
                 [RD_KAFKA_OP_GET_ASSIGNMENT] = "REPLY:GET_ASSIGNMENT",
                 [RD_KAFKA_OP_THROTTLE] = "REPLY:THROTTLE",
                 [RD_KAFKA_OP_NAME] = "REPLY:NAME",
+                [RD_KAFKA_OP_CG_METADATA] = "REPLY:CG_METADATA",
                 [RD_KAFKA_OP_OFFSET_RESET] = "REPLY:OFFSET_RESET",
                 [RD_KAFKA_OP_METADATA] = "REPLY:METADATA",
                 [RD_KAFKA_OP_LOG] = "REPLY:LOG",
@@ -193,6 +194,7 @@ rd_kafka_op_t *rd_kafka_op_new0 (const char *source, rd_kafka_op_type_t type) {
                 [RD_KAFKA_OP_GET_ASSIGNMENT] = sizeof(rko->rko_u.assign),
                 [RD_KAFKA_OP_THROTTLE] = sizeof(rko->rko_u.throttle),
                 [RD_KAFKA_OP_NAME] = sizeof(rko->rko_u.name),
+                [RD_KAFKA_OP_CG_METADATA] = sizeof(rko->rko_u.cg_metadata),
                 [RD_KAFKA_OP_OFFSET_RESET] = sizeof(rko->rko_u.offset_reset),
                 [RD_KAFKA_OP_METADATA] = sizeof(rko->rko_u.metadata),
                 [RD_KAFKA_OP_LOG] = sizeof(rko->rko_u.log),
@@ -267,6 +269,10 @@ void rd_kafka_op_destroy (rd_kafka_op_t *rko) {
 
 	case RD_KAFKA_OP_NAME:
 		RD_IF_FREE(rko->rko_u.name.str, rd_free);
+		break;
+
+	case RD_KAFKA_OP_CG_METADATA:
+		RD_IF_FREE(rko->rko_u.cg_metadata.member_id, rd_free);
 		break;
 
 	case RD_KAFKA_OP_ERR:

@@ -3419,6 +3419,18 @@ rd_kafka_cgrp_op_serve (rd_kafka_t *rk, rd_kafka_q_t *rkq,
                 rko = NULL;
                 break;
 
+        case RD_KAFKA_OP_CG_METADATA:
+                /* Return the rkcg members required to construct
+                 * consumer group metadata. */
+                if (rkcg->rkcg_member_id)
+                        rko->rko_u.cg_metadata.member_id =
+                                RD_KAFKAP_STR_DUP(rkcg->rkcg_member_id);
+                rko->rko_u.cg_metadata.generation_id =
+                        rkcg->rkcg_generation_id;
+                rd_kafka_op_reply(rko, 0);
+                rko = NULL;
+                break;
+
         case RD_KAFKA_OP_OFFSET_FETCH:
                 if (rkcg->rkcg_state != RD_KAFKA_CGRP_STATE_UP ||
                     (rkcg->rkcg_flags & RD_KAFKA_CGRP_F_TERMINATE)) {
@@ -4091,24 +4103,32 @@ rd_kafka_consumer_group_metadata_new_with_genid (const char *group_id,
 
 rd_kafka_consumer_group_metadata_t *
 rd_kafka_consumer_group_metadata (rd_kafka_t *rk) {
-        char *member_id;
         rd_kafka_consumer_group_metadata_t *result;
-        rd_kafka_cgrp_t *rkcg;
+	rd_kafka_op_t *rko;
+	rd_kafka_cgrp_t *rkcg;
 
-        if (!(rkcg = rd_kafka_cgrp_get(rk)))
+        if (rk->rk_type != RD_KAFKA_CONSUMER || !rk->rk_conf.group_id_str)
                 return NULL;
 
-        member_id = rd_kafka_memberid(rk);
+	if (!(rkcg = rd_kafka_cgrp_get(rk)))
+		return NULL;
 
-        if (rk->rk_type != RD_KAFKA_CONSUMER ||
-            !rk->rk_conf.group_id_str || !member_id)
+	rko = rd_kafka_op_req2(rkcg->rkcg_ops, RD_KAFKA_OP_CG_METADATA);
+	if (!rko)
+		return NULL;
+
+        if (!rko->rko_u.cg_metadata.member_id) {
+                rd_kafka_op_destroy(rko);
                 return NULL;
+        }
 
         result = rd_kafka_consumer_group_metadata_new_with_genid(
                 rk->rk_conf.group_id_str,
-                rk->rk_cgrp->rkcg_generation_id,
-                member_id,
+                rko->rko_u.cg_metadata.generation_id,
+                rko->rko_u.cg_metadata.member_id,
                 rk->rk_conf.group_instance_id);
+
+	rd_kafka_op_destroy(rko);
 
         return result;
 }

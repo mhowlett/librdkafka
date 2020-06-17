@@ -108,6 +108,7 @@ typedef enum {
 				      * Reuses u.assign */
 	RD_KAFKA_OP_THROTTLE,        /* Throttle info */
 	RD_KAFKA_OP_NAME,            /* Request name */
+        RD_KAFKA_OP_CG_METADATA,     /**< Request consumer metadata */
 	RD_KAFKA_OP_OFFSET_RESET,    /* Offset reset */
         RD_KAFKA_OP_METADATA,        /* Metadata response */
         RD_KAFKA_OP_LOG,             /* Log */
@@ -294,6 +295,11 @@ struct rd_kafka_op_s {
 		struct {
 			char *str;
 		} name;
+
+                struct {
+                        char *member_id;
+                        int32_t generation_id;
+                } cg_metadata;
 
 		struct {
 			int64_t offset;
