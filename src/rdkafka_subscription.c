@@ -93,9 +93,8 @@ rd_kafka_subscribe (rd_kafka_t *rk,
 
 
 rd_kafka_resp_err_t
-rd_kafka_assign0 (rd_kafka_t *rk,
-                  rd_kafka_assign_t assign_type,
-                  const rd_kafka_topic_partition_list_t *partitions) {
+rd_kafka_assign (rd_kafka_t *rk,
+                 const rd_kafka_topic_partition_list_t *partitions) {
         rd_kafka_op_t *rko;
         rd_kafka_cgrp_t *rkcg;
 
@@ -104,7 +103,7 @@ rd_kafka_assign0 (rd_kafka_t *rk,
 
         rko = rd_kafka_op_new(RD_KAFKA_OP_ASSIGN);
 
-        rko->rko_u.assign.type = assign_type;
+        rko->rko_u.assign.type = RD_KAFKA_ASSIGN_METHOD_ASSIGN;
 
         if (partitions)
 	        rko->rko_u.assign.partitions =
@@ -115,10 +114,31 @@ rd_kafka_assign0 (rd_kafka_t *rk,
 }
 
 
-rd_kafka_resp_err_t
-rd_kafka_assign (rd_kafka_t *rk,
-                 const rd_kafka_topic_partition_list_t *partitions) {
-        return rd_kafka_assign0(rk, RD_KAFKA_ASSIGN_METHOD_ASSIGN, partitions);
+rd_kafka_error_t *
+rd_kafka_assign0 (rd_kafka_t *rk,
+                  rd_kafka_assign_t assign_type,
+                  const rd_kafka_topic_partition_list_t *partitions) {
+        rd_kafka_op_t *rko;
+        rd_kafka_cgrp_t *rkcg;
+
+        if (!partitions)
+                return rd_kafka_error_new(RD_KAFKA_RESP_ERR__INVALID_ARG,
+                                          "partitions must not be NULL");
+
+        if (!(rkcg = rd_kafka_cgrp_get(rk)))
+                return rd_kafka_error_new(RD_KAFKA_RESP_ERR__UNKNOWN_GROUP,
+                        rd_kafka_err2str(RD_KAFKA_RESP_ERR__UNKNOWN_GROUP));
+
+        rko = rd_kafka_op_new(RD_KAFKA_OP_ASSIGN);
+
+        rko->rko_u.assign.type = assign_type;
+
+        if (partitions)
+	        rko->rko_u.assign.partitions =
+                        rd_kafka_topic_partition_list_copy(partitions);
+
+        return rd_kafka_op_error_destroy(
+                rd_kafka_op_req(rkcg->rkcg_ops, rko, RD_POLL_INFINITE));
 }
 
 
@@ -126,21 +146,8 @@ rd_kafka_error_t *
 rd_kafka_incremental_assign (rd_kafka_t *rk,
                              const rd_kafka_topic_partition_list_t
                              *partitions) {
-        rd_kafka_resp_err_t err;
-
-        if (!partitions)
-                err = RD_KAFKA_RESP_ERR__INVALID_ARG;
-        else
-                err = rd_kafka_assign0(rk,
-                                       RD_KAFKA_ASSIGN_METHOD_INCR_ASSIGN,
-                                       partitions);
-
-        if (err)
-                return rd_kafka_error_new(err,
-                                          "Incremental assign failed: %s",
-                                          rd_kafka_err2str(err));
-
-        return NULL;
+        return rd_kafka_assign0(rk, RD_KAFKA_ASSIGN_METHOD_INCR_ASSIGN,
+                                partitions);
 }
 
 
@@ -148,21 +155,8 @@ rd_kafka_error_t *
 rd_kafka_incremental_unassign (rd_kafka_t *rk,
                                const rd_kafka_topic_partition_list_t
                                *partitions) {
-        rd_kafka_resp_err_t err;
-
-        if (!partitions)
-                err = RD_KAFKA_RESP_ERR__INVALID_ARG;
-        else
-                err = rd_kafka_assign0(rk,
-                                       RD_KAFKA_ASSIGN_METHOD_INCR_UNASSIGN,
-                                       partitions);
-
-        if (err)
-                return rd_kafka_error_new(err,
-                                          "Incremental unassign failed: %s",
-                                          rd_kafka_err2str(err));
-
-        return NULL;
+        return rd_kafka_assign0(rk, RD_KAFKA_ASSIGN_METHOD_INCR_UNASSIGN,
+                                partitions);
 }
 
 

@@ -6142,7 +6142,7 @@ static void rd_kafka_broker_handle_purge_queues (rd_kafka_broker_t *rkb,
                            msg_cnt, part_cnt);
         }
 
-        rd_kafka_op_reply(rko, RD_KAFKA_RESP_ERR_NO_ERROR);
+        rd_kafka_op_reply(rko, RD_KAFKA_RESP_ERR_NO_ERROR, NULL);
 }
 
 
