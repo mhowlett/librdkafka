@@ -317,7 +317,7 @@ struct rd_kafka_consumer_group_metadata_s {
         char *group_id;
         int32_t generation_id;
         char *member_id;
-        char *group_instance_id;
+        char *group_instance_id;  /**< Optional (NULL) */
 };
 
 rd_kafka_consumer_group_metadata_t *

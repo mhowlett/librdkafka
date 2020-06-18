@@ -34,6 +34,7 @@
 #include "rdkafka_partition.h"
 #include "rdkafka_proto.h"
 #include "rdkafka_offset.h"
+#include "rdkafka_error.h"
 
 /* Current number of rd_kafka_op_t */
 rd_atomic32_t rd_kafka_op_cnt;
@@ -259,7 +260,7 @@ void rd_kafka_op_destroy (rd_kafka_op_t *rko) {
 	case RD_KAFKA_OP_ASSIGN:
 	case RD_KAFKA_OP_GET_ASSIGNMENT:
 		RD_IF_FREE(rko->rko_u.assign.partitions,
-			           rd_kafka_topic_partition_list_destroy);
+                           rd_kafka_topic_partition_list_destroy);
 		break;
 
 	case RD_KAFKA_OP_REBALANCE:
@@ -272,7 +273,8 @@ void rd_kafka_op_destroy (rd_kafka_op_t *rko) {
 		break;
 
 	case RD_KAFKA_OP_CG_METADATA:
-		RD_IF_FREE(rko->rko_u.cg_metadata.member_id, rd_free);
+		RD_IF_FREE(rko->rko_u.cg_metadata,
+                           rd_kafka_consumer_group_metadata_destroy);
 		break;
 
 	case RD_KAFKA_OP_ERR:
@@ -348,7 +350,6 @@ void rd_kafka_op_destroy (rd_kafka_op_t *rko) {
                 RD_IF_FREE(rko->rko_u.txn.group_id, rd_free);
                 RD_IF_FREE(rko->rko_u.txn.offsets,
                            rd_kafka_topic_partition_list_destroy);
-                RD_IF_FREE(rko->rko_u.txn.error, rd_kafka_error_destroy);
                 break;
 
 	default:
@@ -365,6 +366,8 @@ void rd_kafka_op_destroy (rd_kafka_op_t *rko) {
         }
 
 	RD_IF_FREE(rko->rko_rktp, rd_kafka_toppar_destroy);
+
+        RD_IF_FREE(rko->rko_error, rd_kafka_error_destroy);
 
 	rd_kafka_replyq_destroy(&rko->rko_replyq);
 
@@ -483,7 +486,9 @@ rd_kafka_op_t *rd_kafka_op_new_cb (rd_kafka_t *rk,
  *
  * @returns 1 if op was enqueued, else 0 and rko is destroyed.
  */
-int rd_kafka_op_reply (rd_kafka_op_t *rko, rd_kafka_resp_err_t err) {
+int rd_kafka_op_reply (rd_kafka_op_t *rko,
+                       rd_kafka_resp_err_t err,
+                       rd_kafka_error_t *error) {
 
         if (!rko->rko_replyq.q) {
 		rd_kafka_op_destroy(rko);
@@ -492,6 +497,7 @@ int rd_kafka_op_reply (rd_kafka_op_t *rko, rd_kafka_resp_err_t err) {
 
 	rko->rko_type |= (rko->rko_op_cb ? RD_KAFKA_OP_CB : RD_KAFKA_OP_REPLY);
         rko->rko_err   = err;
+        rko->rko_error = error;
 
 	return rd_kafka_replyq_enq(&rko->rko_replyq, rko, 0);
 }
@@ -552,8 +558,9 @@ rd_kafka_op_t *rd_kafka_op_req2 (rd_kafka_q_t *destq, rd_kafka_op_type_t type) {
         return rd_kafka_op_req(destq, rko, RD_POLL_INFINITE);
 }
 
+
 /**
- * Destroys the rko and returns its error.
+ * Destroys the rko and returns its err.
  */
 rd_kafka_resp_err_t rd_kafka_op_err_destroy (rd_kafka_op_t *rko) {
         rd_kafka_resp_err_t err = RD_KAFKA_RESP_ERR__TIMED_OUT;
@@ -563,6 +570,23 @@ rd_kafka_resp_err_t rd_kafka_op_err_destroy (rd_kafka_op_t *rko) {
 		rd_kafka_op_destroy(rko);
 	}
         return err;
+}
+
+
+/**
+ * Destroys the rko and returns its error object or NULL if no error.
+ */
+rd_kafka_error_t *rd_kafka_op_error_destroy (rd_kafka_op_t *rko) {
+	if (rko) {
+		rd_kafka_error_t *error = rko->rko_error;
+                rko->rko_error = NULL;
+		rd_kafka_op_destroy(rko);
+                return error;
+	}
+
+        return rd_kafka_error_new(
+                RD_KAFKA_RESP_ERR__TIMED_OUT,
+                rd_kafka_err2str(RD_KAFKA_RESP_ERR__TIMED_OUT));
 }
 
 

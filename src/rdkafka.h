@@ -3649,9 +3649,9 @@ rd_kafka_resp_err_t rd_kafka_consumer_close (rd_kafka_t *rk);
  * list is empty. \p partitions must not be NULL. This method may also be
  * used outside the context of a rebalance callback.
  *
- * @returns An error code indicating if the new assignment was applied or not.
- *          RD_KAFKA_RESP_ERR__FATAL is returned if the consumer has raised
- *          a fatal error.
+ * @returns An error object indicating if the new assignment was applied or
+ *          not. Use is_fatal() to check if the consumer has raised a fatal
+ *          error.
  *
  * @remark The returned error object (if not NULL) must be destroyed with
  *         rd_kafka_error_destroy().
@@ -3672,9 +3672,9 @@ rd_kafka_incremental_assign (rd_kafka_t *rk,
  * list is empty. \p partitions must not be NULL. This method may also be
  * used outside the context of a rebalance callback.
  *
- * @returns An error code indicating if the new assignment was applied or not.
- *          RD_KAFKA_RESP_ERR__FATAL is returned if the consumer has raised
- *          a fatal error.
+ * @returns An error object indicating if the new assignment was applied or
+ *          not. Use is_fatal() to check if the consumer has raised a fatal
+ *          error.
  *
  * @remark The returned error object (if not NULL) must be destroyed with
  *         rd_kafka_error_destroy().

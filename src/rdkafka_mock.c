@@ -1857,7 +1857,7 @@ rd_kafka_mock_cluster_op_serve (rd_kafka_t *rk, rd_kafka_q_t *rkq,
                 break;
         }
 
-        rd_kafka_op_reply(rko, err);
+        rd_kafka_op_reply(rko, err, NULL);
 
         return RD_KAFKA_OP_RES_HANDLED;
 }

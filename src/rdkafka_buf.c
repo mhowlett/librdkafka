@@ -41,7 +41,7 @@ void rd_kafka_buf_destroy_final (rd_kafka_buf_t *rkbuf) {
                         rd_free(rkbuf->rkbuf_u.Metadata.reason);
                 if (rkbuf->rkbuf_u.Metadata.rko)
                         rd_kafka_op_reply(rkbuf->rkbuf_u.Metadata.rko,
-                                          RD_KAFKA_RESP_ERR__DESTROY);
+                                          RD_KAFKA_RESP_ERR__DESTROY, NULL);
                 if (rkbuf->rkbuf_u.Metadata.decr) {
                         /* Decrease metadata cache's full_.._sent state. */
                         mtx_lock(rkbuf->rkbuf_u.Metadata.decr_lock);
