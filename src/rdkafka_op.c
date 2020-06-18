@@ -260,7 +260,7 @@ void rd_kafka_op_destroy (rd_kafka_op_t *rko) {
 	case RD_KAFKA_OP_ASSIGN:
 	case RD_KAFKA_OP_GET_ASSIGNMENT:
 		RD_IF_FREE(rko->rko_u.assign.partitions,
-                           rd_kafka_topic_partition_list_destroy);
+			   rd_kafka_topic_partition_list_destroy);
 		break;
 
 	case RD_KAFKA_OP_REBALANCE:
@@ -273,7 +273,7 @@ void rd_kafka_op_destroy (rd_kafka_op_t *rko) {
 		break;
 
 	case RD_KAFKA_OP_CG_METADATA:
-		RD_IF_FREE(rko->rko_u.cg_metadata,
+                RD_IF_FREE(rko->rko_u.cg_metadata,
                            rd_kafka_consumer_group_metadata_destroy);
 		break;
 
@@ -481,7 +481,9 @@ rd_kafka_op_t *rd_kafka_op_new_cb (rd_kafka_t *rk,
 
 
 /**
- * @brief Reply to 'rko' re-using the same rko.
+ * @brief Reply to 'rko' re-using the same rko with rko_err and
+ *        rko_error as specified by \p err and \p error
+ *
  * If there is no replyq the rko is destroyed.
  *
  * @returns 1 if op was enqueued, else 0 and rko is destroyed.
