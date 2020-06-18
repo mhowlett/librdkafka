@@ -2456,8 +2456,8 @@ rd_kafka_cgrp_incremental_assign (rd_kafka_cgrp_t *rkcg,
                              !rkcg->rkcg_assignment ? 0
                              : rkcg->rkcg_assignment->cnt);
                 err = rd_kafka_cgrp_assign(rkcg, NULL);
-                return err ? rd_kafka_error_new(err, rd_kafka_err2str(err))
-                           : NULL;
+                rd_assert(err);
+                return rd_kafka_error_new(err, rd_kafka_err2str(err));
         }
 
         if (rd_atomic32_get(&rkcg->rkcg_assignment_lost))
@@ -2584,8 +2584,8 @@ rd_kafka_cgrp_incremental_unassign (rd_kafka_cgrp_t *rkcg,
                              partitions->cnt, !rkcg->rkcg_assignment ?
                              0 : rkcg->rkcg_assignment->cnt);
                 err = rd_kafka_cgrp_assign(rkcg, NULL);
-                return err ? rd_kafka_error_new(err, rd_kafka_err2str(err))
-                           : NULL;
+                rd_assert(err);
+                return rd_kafka_error_new(err, rd_kafka_err2str(err));
         }
 
         if (rd_atomic32_get(&rkcg->rkcg_assignment_lost) &&
@@ -2784,13 +2784,13 @@ static void rd_kafka_cgrp_check_unassign_done (rd_kafka_cgrp_t *rkcg,
                 if (rkcg->rkcg_join_state != RD_KAFKA_CGRP_JOIN_STATE_STARTED)
 
                         rd_kafka_dbg(rkcg->rkcg_rk, CGRP, "UNASSIGN",
-                                     "Unassign%s not done yet "
+                                     "%snassign not done yet "
                                      "(%d wait_unassign, %d assigned, "
                                      "%d wait commit"
                                      "%s, join state %s): %s",
                                      rkcg->rkcg_join_state ==
                                      RD_KAFKA_CGRP_JOIN_STATE_WAIT_INCR_UNASSIGN
-                                     ? " (incremental)" : "",
+                                     ? "Incremental u" : "U",
                                      rkcg->rkcg_wait_unassign_cnt,
                                      rkcg->rkcg_assigned_cnt,
                                      rkcg->rkcg_wait_commit_cnt,
@@ -3448,7 +3448,7 @@ rd_kafka_cgrp_op_serve (rd_kafka_t *rk, rd_kafka_q_t *rkq,
                                 RD_KAFKAP_STR_DUP(rkcg->rkcg_member_id),
                                 rkcg->rkcg_rk->rk_conf.group_instance_id)
                         : NULL;
-                rd_kafka_op_reply(rko, 0, NULL);
+                rd_kafka_op_reply(rko, RD_KAFKA_RESP_ERR_NO_ERROR, NULL);
                 rko = NULL;
                 break;
 
@@ -3561,16 +3561,16 @@ rd_kafka_cgrp_op_serve (rd_kafka_t *rk, rd_kafka_q_t *rkq,
                                         rko->rko_u.assign.partitions);
                                 break;
                         case RD_KAFKA_ASSIGN_METHOD_INCR_ASSIGN:
-                                error = rd_kafka_cgrp_incremental_assign(rkcg,
-                                        rko->rko_u.assign.partitions);
-                                err = error ? rd_kafka_error_code(error)
-                                            : RD_KAFKA_RESP_ERR_NO_ERROR;
+                                if (error = rd_kafka_cgrp_incremental_assign(
+                                                rkcg,
+                                                rko->rko_u.assign.partitions))
+                                        err = rd_kafka_error_code(error);
                                 break;
                         case RD_KAFKA_ASSIGN_METHOD_INCR_UNASSIGN:
-                                error = rd_kafka_cgrp_incremental_unassign(rkcg,
-                                        rko->rko_u.assign.partitions);
-                                err = error ? rd_kafka_error_code(error)
-                                            : RD_KAFKA_RESP_ERR_NO_ERROR;
+                                if (error = rd_kafka_cgrp_incremental_unassign(
+                                                rkcg,
+                                                rko->rko_u.assign.partitions))
+                                        err = rd_kafka_error_code(error);
                                 break;
                         default:
                                 rd_assert(0);
@@ -4164,9 +4164,9 @@ rd_kafka_consumer_group_metadata_dup (
         ret->group_id = rd_strdup(cgmetadata->group_id);
         ret->generation_id = cgmetadata->generation_id;
         ret->member_id = rd_strdup(cgmetadata->member_id);
-        ret->group_instance_id = cgmetadata->group_instance_id
-                ? rd_strdup(cgmetadata->group_instance_id)
-                : NULL;
+        if (cgmetadata->group_instance_id)
+                ret->group_instance_id = rd_strdup(
+                        cgmetadata->group_instance_id);
 
         return ret;
 }
@@ -4234,8 +4234,8 @@ rd_kafka_error_t *rd_kafka_consumer_group_metadata_write (
  **/
 static const char *str_is_printable(const char *s, const char *end) {
         const char *c;
-        for (c = s ; *c && s != end ; c++)
-                if (!isprint((int)*s))
+        for (c = s ; *c && c != end ; c++)
+                if (!isprint((int)*c))
                         return NULL;
         return c + 1;
 }
@@ -4244,12 +4244,13 @@ static const char *str_is_printable(const char *s, const char *end) {
 rd_kafka_error_t *rd_kafka_consumer_group_metadata_read (
         rd_kafka_consumer_group_metadata_t **cgmdp,
         const void *buffer, size_t size) {
-        size_t magic_len = sizeof(rd_kafka_consumer_group_metadata_magic);
         const char *buf = (const char *)buffer;
-        const char *end, *next;
-        const char *group_id;
+        const char *end = buf + size;
+        const char *next;
+        size_t magic_len = sizeof(rd_kafka_consumer_group_metadata_magic);
         int32_t generation_id;
         size_t generationid_len = sizeof(generation_id);
+        const char *group_id;
         const char *member_id;
         int8_t group_instance_id_is_null;
         const char *group_instance_id = NULL;
@@ -4259,13 +4260,11 @@ rd_kafka_error_t *rd_kafka_consumer_group_metadata_read (
                                           "Input buffer is too short");
 
         if (memcmp(buffer, rd_kafka_consumer_group_metadata_magic, magic_len))
-                return rd_kafka_error_new(
-                        RD_KAFKA_RESP_ERR__BAD_MSG,
-                        "Input buffer is not a serialized "
-                        "consumer group metadata object");
+                return rd_kafka_error_new(RD_KAFKA_RESP_ERR__BAD_MSG,
+                                          "Input buffer is not a serialized "
+                                          "consumer group metadata object");
         memcpy(&generation_id, buf+magic_len, generationid_len);
 
-        end = buf + size;
         group_id = buf + magic_len + generationid_len;
         next = str_is_printable(group_id, end);
         if (!next)
@@ -4284,14 +4283,14 @@ rd_kafka_error_t *rd_kafka_consumer_group_metadata_read (
                 group_instance_id = next;
                 next = str_is_printable(group_instance_id, end);
                 if (!next)
-                        return rd_kafka_error_new(
-                                RD_KAFKA_RESP_ERR__BAD_MSG,
-                                "Input buffer group instance id is not safe");
+                        return rd_kafka_error_new(RD_KAFKA_RESP_ERR__BAD_MSG,
+                                                  "Input buffer group "
+                                                  "instance id is not safe");
         }
 
         if (next != end)
                 return rd_kafka_error_new(RD_KAFKA_RESP_ERR__BAD_MSG,
-                                "Input buffer bad length");
+                                          "Input buffer bad length");
 
         *cgmdp = rd_kafka_consumer_group_metadata_new_with_genid(
                                                         group_id,

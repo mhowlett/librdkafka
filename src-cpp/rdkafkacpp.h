@@ -2418,14 +2418,13 @@ public:
    *
    * If a COOPERATIVE assignor (i.e. incremental rebalancing) is being used,
    * this method should be used in a rebalance callback to adjust the current
-   * assignmnet appropriately in the case where the rebalance type is
+   * assignment appropriately in the case where the rebalance type is
    * ERR__ASSIGN_PARTITIONS. The application must pass the partition list
    * passed to the callback (or a copy of it), even if the list is empty.
    * This method may also be used outside the context of a rebalance callback.
    *
    * @returns An error object indicating if the new assignment was applied or
-   *          not. Use is_fatal() to check if the consumer has raised a fatal
-   *          error.
+   *          not.
    *
    * @remark The returned object must be deleted by the application.
    */
@@ -2436,14 +2435,13 @@ public:
    *
    * If a COOPERATIVE assignor (i.e. incremental rebalancing) is being used,
    * this method should be used in a rebalance callback to adjust the current
-   * assignmnet appropriately in the case where the rebalance type is
+   * assignment appropriately in the case where the rebalance type is
    * ERR__REVOKE_PARTITIONS. The application must pass the partition list
    * passed to the callback (or a copy of it), even if the list is empty.
    * This method may also be used outside the context of a rebalance callback.
    *
    * @returns An error object indicating if the new assignment was applied or
-   *          not. Use is_fatal() to check if the consumer has raised a fatal
-   *          error.
+   *          not.
    *
    * @remark The returned object must be deleted by the application.
    */
