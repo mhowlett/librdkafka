@@ -129,6 +129,19 @@ rd_kafka_mock_cluster_bootstraps (const rd_kafka_mock_cluster_t *mcluster);
 
 
 /**
+ * @brief Set the cluster's error state to \p cnt errors in the \p ... va-arg list
+ *        for the given \p ApiKey. Replaces any existing error state for this key.
+ *
+ * \p ApiKey is the Kafka protocol request type, e.g., ProduceRequest (0).
+ *
+ * The following \p cnt protocol requests matching \p ApiKey will fail with the
+ * provided error code and removed from the stack, starting with
+ * the first error code, then the second, etc.
+ */
+void rd_kafka_mock_set_request_errors (rd_kafka_mock_cluster_t *mcluster,
+                                       int16_t ApiKey, size_t cnt, ...);
+
+/**
  * @brief Push \p cnt errors in the \p ... va-arg list onto the cluster's
  *        error stack for the given \p ApiKey.
  *

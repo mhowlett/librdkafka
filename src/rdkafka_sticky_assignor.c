@@ -3504,7 +3504,7 @@ static int rd_kafka_sticky_assignor_unittest (void) {
 rd_kafka_resp_err_t rd_kafka_sticky_assignor_init (rd_kafka_t *rk) {
         return rd_kafka_assignor_add(
                 rk, "consumer", "cooperative-sticky",
-                RD_KAFKA_ASSIGNOR_PROTOCOL_COOPERATIVE,
+                RD_KAFKA_REBALANCE_PROTOCOL_COOPERATIVE,
                 rd_kafka_sticky_assignor_assign_cb,
                 rd_kafka_sticky_assignor_get_metadata,
                 rd_kafka_sticky_assignor_on_assignment_cb,

@@ -1546,6 +1546,33 @@ rd_kafka_mock_next_request_error (rd_kafka_mock_connection_t *mconn,
 
 
 
+void rd_kafka_mock_set_request_errors (rd_kafka_mock_cluster_t *mcluster,
+                                       int16_t ApiKey, size_t cnt, ...) {
+        va_list ap;
+        rd_kafka_mock_error_stack_t *errstack;
+
+        mtx_lock(&mcluster->lock);
+
+        errstack = rd_kafka_mock_error_stack_get(&mcluster->errstacks, ApiKey);
+
+        if (cnt > errstack->size) {
+                errstack->size = cnt + 4;
+                errstack->errs = rd_realloc(errstack->errs,
+                                            errstack->size *
+                                            sizeof(*errstack->errs));
+        }
+
+        errstack->cnt = 0;
+        va_start(ap, cnt);
+        while (cnt-- > 0)
+                errstack->errs[errstack->cnt++] =
+                        va_arg(ap, rd_kafka_resp_err_t);
+        va_end(ap);
+
+        mtx_unlock(&mcluster->lock);
+}
+
+
 
 void rd_kafka_mock_push_request_errors (rd_kafka_mock_cluster_t *mcluster,
                                         int16_t ApiKey, size_t cnt, ...) {

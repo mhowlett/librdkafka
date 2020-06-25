@@ -1418,10 +1418,9 @@ rd_kafka_mock_handle_SyncGroup (rd_kafka_mock_connection_t *mconn,
         if (!err)
                 rd_kafka_mock_cgrp_member_active(member);
 
-
-        is_leader = mcgrp->leader && mcgrp->leader == member;
-
         if (!err) {
+                is_leader = mcgrp->leader && mcgrp->leader == member;
+
                 if (AssignmentCnt > 0 && !is_leader)
                         err = RD_KAFKA_RESP_ERR_NOT_LEADER_FOR_PARTITION; /* FIXME */
                 else if (AssignmentCnt == 0 && is_leader)

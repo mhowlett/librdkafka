@@ -130,9 +130,10 @@ typedef struct rd_kafka_cgrp_s {
 						     */
         int                rkcg_flags;
 #define RD_KAFKA_CGRP_F_TERMINATE    0x1            /* Terminate cgrp (async) */
-#define RD_KAFKA_CGRP_F_WAIT_UNASSIGN 0x4           /* Waiting for unassign
-						     * to complete */
-#define RD_KAFKA_CGRP_F_LEAVE_ON_UNASSIGN 0x8       /* Send LeaveGroup when
+#define RD_KAFKA_CGRP_F_WAIT_UNASSIGN_CALL 0x4      /* Waiting for unassign
+						     * or incremental_unassign
+                                                     * to be called. */
+#define RD_KAFKA_CGRP_F_LEAVE_ON_UNASSIGN_DONE 0x8  /* Send LeaveGroup when
 						     * unassign is done */
 #define RD_KAFKA_CGRP_F_SUBSCRIPTION 0x10           /* If set:
                                                      *   subscription
@@ -215,6 +216,14 @@ typedef struct rd_kafka_cgrp_s {
 
         /* Current assignment */
         rd_kafka_topic_partition_list_t *rkcg_assignment;
+
+        /** The partitions to incrementally assign following a
+         *  currently in-progress incremental unassign. */
+        rd_kafka_topic_partition_list_t *rkcg_rebalance_incr_assignment;
+
+        /** Rejoin the group following a currently in-progress
+         *  incremental unassign. */
+        rd_bool_t rkcg_rebalance_rejoin;
 
         int rkcg_wait_unassign_cnt;                 /* Waiting for this number
                                                      * of partitions to be
@@ -312,6 +321,10 @@ void rd_kafka_cgrp_coord_dead (rd_kafka_cgrp_t *rkcg, rd_kafka_resp_err_t err,
 			       const char *reason);
 void rd_kafka_cgrp_metadata_update_check (rd_kafka_cgrp_t *rkcg, int do_join);
 #define rd_kafka_cgrp_get(rk) ((rk)->rk_cgrp)
+
+rd_kafka_rebalance_protocol_t
+rd_kafka_cgrp_rebalance_protocol (rd_kafka_cgrp_t *rkcg);
+
 
 struct rd_kafka_consumer_group_metadata_s {
         char *group_id;

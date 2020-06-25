@@ -34,6 +34,8 @@
 #include "rdregex.h"
 #include "rdports.h"  /* rd_qsort_r() */
 
+#include "rdunittest.h"
+
 const char *rd_kafka_fetch_states[] = {
 	"none",
         "stopping",
@@ -1807,7 +1809,9 @@ static void rd_kafka_toppar_pause_resume (rd_kafka_toppar_t *rktp,
 	rktp->rktp_op_version = version;
 
 	if (pause) {
-		/* Pause partition */
+		/* Pause partition by setting either
+                 * RD_KAFKA_TOPPAR_F_APP_PAUSE or
+                 * RD_KAFKA_TOPPAR_F_LIB_PAUSE */
 		rktp->rktp_flags |= flag;
 
 		if (rk->rk_type == RD_KAFKA_CONSUMER) {
@@ -1840,7 +1844,8 @@ static void rd_kafka_toppar_pause_resume (rd_kafka_toppar_t *rktp,
 			}
 
 	} else {
-		/* Resume partition */
+		/* Unset the RD_KAFKA_TOPPAR_F_APP_PAUSE or
+                 * RD_KAFKA_TOPPAR_F_LIB_PAUSE flag */
 		rktp->rktp_flags &= ~flag;
 
 		if (rk->rk_type == RD_KAFKA_CONSUMER) {
@@ -1865,13 +1870,15 @@ static void rd_kafka_toppar_pause_resume (rd_kafka_toppar_t *rktp,
 			 * Typical case is when a partition is paused
 			 * before anything has been consumed by app
 			 * yet thus having rktp_app_offset=INVALID. */
-			if ((rktp->rktp_fetch_state ==
+			if (!RD_KAFKA_TOPPAR_IS_PAUSED(rktp) &&
+                            (rktp->rktp_fetch_state ==
 			     RD_KAFKA_TOPPAR_FETCH_ACTIVE ||
 			     rktp->rktp_fetch_state ==
 			     RD_KAFKA_TOPPAR_FETCH_OFFSET_WAIT) &&
-			    rktp->rktp_next_offset == RD_KAFKA_OFFSET_INVALID)
+			    rktp->rktp_next_offset == RD_KAFKA_OFFSET_INVALID) {
 				rd_kafka_toppar_next_offset_handle(
 					rktp, rktp->rktp_next_offset);
+                        }
 
 		} else
 			rd_kafka_dbg(rk, TOPIC, pause?"PAUSE":"RESUME",
@@ -2041,9 +2048,8 @@ rd_ts_t rd_kafka_toppar_fetch_decide (rd_kafka_toppar_t *rktp,
                         rd_kafka_broker_active_toppar_add(rkb, rktp,
                                                           *reason ? reason :
                                                           "fetchable");
-                } else {
+                } else
                         rd_kafka_broker_active_toppar_del(rkb, rktp, reason);
-                }
         }
 
         rd_kafka_toppar_unlock(rktp);
@@ -2221,7 +2227,7 @@ rd_kafka_toppar_op_serve (rd_kafka_t *rk,
 					      "available");
 		rd_kafka_toppar_unlock(rktp);
 
-                rd_kafka_toppar_destroy(rktp);
+                rd_kafka_toppar_destroy(rktp); // <<<<
         }
         break;
 
@@ -3691,9 +3697,43 @@ rd_kafka_topic_partition_list_sum (
                 const rd_kafka_topic_partition_t *rktpar =
                         &rktparlist->elems[i];
                 sum += cb(rktpar, opaque);
-       }
+        }
+
         return sum;
 }
+
+
+/**
+ * @returns rd_true if there are duplicate topic/partitions in the list,
+ *          rd_false if not.
+ *
+ * @remarks sorts the elements of the list.
+ */
+rd_bool_t
+rd_kafka_topic_partition_list_has_duplicates (
+                rd_kafka_topic_partition_list_t *rktparlist,
+                rd_bool_t ignore_partition) {
+
+        int i;
+
+        if (rktparlist->cnt <= 1)
+                return rd_false;
+
+        rd_kafka_topic_partition_list_sort_by_topic(rktparlist);
+
+        for (i=1; i<rktparlist->cnt; i++) {
+                const rd_kafka_topic_partition_t *p1 = &rktparlist->elems[i-1];
+                const rd_kafka_topic_partition_t *p2 = &rktparlist->elems[i];
+
+                if (!strcmp(p1->topic, p2->topic) &&
+                    ((p1->partition != p2->partition) && !ignore_partition)) {
+                        return rd_true;
+                }
+        }
+
+        return rd_false;
+}
+// TODO: unit testing.
 
 
 /**

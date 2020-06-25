@@ -3572,6 +3572,10 @@ const char *rd_kafka_conf_finalize (rd_kafka_type_t cltype,
 #endif
 
         if (cltype == RD_KAFKA_CONSUMER) {
+                rd_kafka_assignor_t *rkas;
+                rd_kafka_rebalance_protocol_t assignor_protocol;
+                int i;
+
                 /* Automatically adjust `fetch.max.bytes` to be >=
                  * `message.max.bytes` and <= `queued.max.message.kbytes`
                  * unless set by user. */
@@ -3609,6 +3613,27 @@ const char *rd_kafka_conf_finalize (rd_kafka_type_t cltype,
 
                 /* Simplifies rd_kafka_is_idempotent() which is producer-only */
                 conf->eos.idempotence = 0;
+
+                RD_LIST_FOREACH(rkas, &conf->partition_assignors, i) {
+                        if (i == 0) {
+                                assignor_protocol =
+                                        rkas->rkas_protocol;
+
+                                rd_assert(assignor_protocol ==
+                                    RD_KAFKA_REBALANCE_PROTOCOL_EAGER ||
+                                    assignor_protocol ==
+                                    RD_KAFKA_REBALANCE_PROTOCOL_COOPERATIVE);
+                        } else {
+                                if (assignor_protocol !=
+                                    rkas->rkas_protocol)
+                                        return "All assignors must have "
+                                               "the same protocol type. "
+                                               "Online migration between "
+                                               "assignors with different "
+                                               "protocol types is not "
+                                               "supported";
+                        }
+                }
 
         } else if (cltype == RD_KAFKA_PRODUCER) {
                 if (conf->eos.transactional_id) {
