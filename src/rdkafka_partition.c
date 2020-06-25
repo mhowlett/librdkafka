@@ -34,6 +34,8 @@
 #include "rdregex.h"
 #include "rdports.h"  /* rd_qsort_r() */
 
+#include "rdunittest.h"
+
 const char *rd_kafka_fetch_states[] = {
 	"none",
         "stopping",
@@ -2818,6 +2820,101 @@ rd_kafka_topic_partition_list_copy (const rd_kafka_topic_partition_list_t *src){
         return dst;
 }
 
+
+/**
+ * @brief Set intersection. Returns a list of all elements of \p a that
+ *        are also elements of \p b. Additionally, compares the opaque
+ *        field of matching elements from \p a and \p b and if equal sets
+ *        the opaque field in the result element to 1, else 0.
+ *
+ * @remarks Preconditions: \p a and \p b must not be NULL and must not
+ *          contain duplicate elements.
+ *
+ * @warning This is an O(Na*Nb) operation.
+ */
+rd_kafka_topic_partition_list_t *
+rd_kafka_topic_partition_list_set_intersect(
+                const rd_kafka_topic_partition_list_t *a,
+                const rd_kafka_topic_partition_list_t *b) {
+        int i, j;
+        rd_kafka_topic_partition_list_t *rktparlist =
+                rd_kafka_topic_partition_list_new(RD_MIN(a->cnt, b->cnt));
+
+        rd_assert(a);
+        rd_assert(b);
+
+        /**
+         * FIXME: If the list sizes are larger than X we could sort them
+         *        and use binary search.
+         */
+        for (i = 0 ; i < a->cnt ; i++) {
+                rd_kafka_topic_partition_t *el_a = &a->elems[i];
+                for (j = 0 ; j < b->cnt ; j++) {
+                        rd_kafka_topic_partition_t *el_b = &b->elems[j];
+                        if (el_a->partition == el_b->partition &&
+                            strcmp(el_a->topic, el_b->topic) == 0) {
+                                rd_kafka_topic_partition_t *toppar;
+                                toppar =
+                                rd_kafka_topic_partition_list_add(rktparlist,
+                                                                  el_a->topic,
+                                                                  el_a->
+                                                                  partition);
+                                toppar->opaque = el_a->opaque ==
+                                                 el_b->opaque ? (void *)1 : (void *)0;
+                                break;
+                        }
+                }
+        }
+
+        return rktparlist;
+}
+
+
+/**
+ * @brief Set subtraction. Returns a list of all elemets of \p a
+ *        that are not elements of \p b.
+ *
+ * @remarks Preconditions: \p a and \p b must not be NULL and must not
+ *          contain duplicate elements.
+ *
+ * @warning This is an O(Na*Nb) operation.
+ */
+rd_kafka_topic_partition_list_t *
+rd_kafka_topic_partition_list_set_subtract(
+                const rd_kafka_topic_partition_list_t *a,
+                const rd_kafka_topic_partition_list_t *b) {
+        int i, j;
+        rd_kafka_topic_partition_list_t *rktparlist =
+                rd_kafka_topic_partition_list_new(a->cnt);
+
+        rd_assert(a);
+        rd_assert(b);
+
+        /**
+         * FIXME: If the list sizes are larger than X we could sort them
+         *        and use binary search.
+         */
+        for (i = 0 ; i < a->cnt ; i++) {
+                rd_kafka_topic_partition_t *el_a = &a->elems[i];
+                rd_bool_t found = rd_false;
+                for (j = 0 ; j < b->cnt ; j++) {
+                        rd_kafka_topic_partition_t *el_b = &b->elems[j];
+                        if (el_a->partition == el_b->partition &&
+                            strcmp(el_a->topic, el_b->topic) == 0) {
+                                found = rd_true;
+                                break;
+                        }
+                }
+                if (!found)
+                        rd_kafka_topic_partition_list_add(rktparlist,
+                                                          el_a->topic,
+                                                          el_a->partition);
+        }
+
+        return rktparlist;
+}
+
+
 /**
  * @returns (and sets if necessary) the \p rktpar's _private / toppar.
  * @remark a new reference is returned.
@@ -3806,4 +3903,86 @@ void rd_kafka_purge_ua_toppar_queues (rd_kafka_t *rk) {
         rd_kafka_dbg(rk, QUEUE|RD_KAFKA_DBG_TOPIC, "PURGEQ",
                      "Purged %i message(s) from %d UA-partition(s)",
                      msg_cnt, part_cnt);
+}
+
+
+static int unittest_set_intersect (void) {
+        rd_kafka_topic_partition_list_t *dst;
+        rd_kafka_topic_partition_list_t *a;
+        rd_kafka_topic_partition_list_t *b;
+        rd_kafka_topic_partition_t *el;
+
+        a = rd_kafka_topic_partition_list_new(3);
+        el = rd_kafka_topic_partition_list_add(a, "t1", 4);
+        el->opaque = (void *)10;
+        rd_kafka_topic_partition_list_add(a, "t2", 4);
+        rd_kafka_topic_partition_list_add(a, "t1", 7);
+
+        b = rd_kafka_topic_partition_list_new(2);
+        rd_kafka_topic_partition_list_add(b, "t2", 7);
+        el = rd_kafka_topic_partition_list_add(b, "t1", 4);
+        el->opaque = (void *)10;
+
+        dst = rd_kafka_topic_partition_list_set_intersect(a, b);
+        RD_UT_ASSERT(a->cnt == 3, "unexpected a cnt: %d", a->cnt);
+        RD_UT_ASSERT(b->cnt == 2, "unexpected b cnt: %d", b->cnt);
+        RD_UT_ASSERT(dst->cnt == 1, "unexpected dst cnt: %d", dst->cnt);
+        RD_UT_ASSERT(!strcmp(dst->elems[0].topic, "t1"),
+                     "unexpected el 0 topic: %s", dst->elems[0].topic);
+        RD_UT_ASSERT(dst->elems[0].partition == 4,
+                     "unexpected el 0 partition: %d", dst->elems[0].partition);
+        RD_UT_ASSERT((intptr_t)dst->elems[0].opaque == 1,
+                     "unexpected el 0 opaque: %d",
+                     (int)(intptr_t)dst->elems[0].opaque);
+
+        rd_kafka_topic_partition_list_destroy(a);
+        rd_kafka_topic_partition_list_destroy(b);
+        rd_kafka_topic_partition_list_destroy(dst);
+
+        RD_UT_PASS();
+}
+
+
+static int unittest_set_subtract (void) {
+        rd_kafka_topic_partition_list_t *dst;
+        rd_kafka_topic_partition_list_t *a;
+        rd_kafka_topic_partition_list_t *b;
+
+        a = rd_kafka_topic_partition_list_new(2);
+        rd_kafka_topic_partition_list_add(a, "t1", 4);
+        rd_kafka_topic_partition_list_add(a, "t2", 7);
+
+        b = rd_kafka_topic_partition_list_new(3);
+        rd_kafka_topic_partition_list_add(b, "t2", 4);
+        rd_kafka_topic_partition_list_add(b, "t1", 4);
+        rd_kafka_topic_partition_list_add(b, "t1", 7);
+
+        dst = rd_kafka_topic_partition_list_set_subtract(a, b);
+        RD_UT_ASSERT(a->cnt == 2, "unexpected a cnt: %d", a->cnt);
+        RD_UT_ASSERT(b->cnt == 3, "unexpected b cnt: %d", b->cnt);
+        RD_UT_ASSERT(dst->cnt == 1, "unexpected dst cnt: %d", b->cnt);
+        RD_UT_ASSERT(!strcmp(dst->elems[0].topic, "t2"),
+                     "unexpected el 0 topic: %s", dst->elems[0].topic);
+        RD_UT_ASSERT(dst->elems[0].partition == 7,
+                     "unexpected el 0 partition: %d", dst->elems[0].partition);
+
+        rd_kafka_topic_partition_list_destroy(a);
+        rd_kafka_topic_partition_list_destroy(b);
+        rd_kafka_topic_partition_list_destroy(dst);
+
+        RD_UT_PASS();
+}
+
+
+
+/**
+ * @brief Partition unit tests
+ */
+int unittest_partition (void) {
+        int fails = 0;
+
+        // fails += unittest_set_intersect();
+        // fails += unittest_set_subtract();
+
+        return fails;
 }

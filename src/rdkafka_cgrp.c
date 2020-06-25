@@ -750,6 +750,87 @@ rd_kafka_rebalance_op (rd_kafka_cgrp_t *rkcg,
 }
 
 
+
+
+/**
+ * @brief Appends a new rd_kafka_topic_partition_t corresponding to each
+ *        element of list \p src to list \p dst. The opaque field is set
+ *        to \p rkgm.
+ */
+static void rd_kafka_topic_partition_list_concat (
+                rd_kafka_topic_partition_list_t *dst,
+                const rd_kafka_topic_partition_list_t *src,
+                rd_kafka_group_member_t *rkgm) {
+        int i;
+
+        rd_assert(src);
+        rd_assert(dst);
+
+        for (i = 0 ; i < src->cnt ; i++) {
+                rd_kafka_topic_partition_t *rktp;
+                rktp = rd_kafka_topic_partition_list_add(dst,
+                        src->elems[i].topic, src->elems[i].partition);
+                rktp->opaque = rkgm;
+        }
+}
+
+
+/**
+ * @brief Collect all owned partitions from all members. The opaque
+ *        field of each is set to the associated group member.
+ */
+static rd_kafka_topic_partition_list_t *
+rd_kafka_collect_owned_partitions (rd_kafka_group_member_t *members,
+                                   int member_cnt) {
+        rd_kafka_topic_partition_list_t *rktparlist;
+        int par_cnt;
+        int i;
+
+        par_cnt = 0;
+        for (i = 0 ; i<member_cnt ; i++)
+                par_cnt += members[i].rkgm_owned->cnt;
+
+        rktparlist = rd_kafka_topic_partition_list_new(par_cnt);
+
+        for (i = 0 ; i<member_cnt ; i++) {
+                rd_kafka_group_member_t *rkgm = &members[i];
+                rd_kafka_topic_partition_list_concat(rktparlist,
+                                                     rkgm->rkgm_owned,
+                                                     rkgm);
+        }
+
+        return rktparlist;
+}
+
+
+/**
+ * @brief Collect all assigned partitions from all members. The opaque
+ *        field of each is set to the associated group member.
+ */
+static rd_kafka_topic_partition_list_t *
+rd_kafka_collect_assigned_partitions (rd_kafka_group_member_t *members,
+                                      int member_cnt) {
+        rd_kafka_topic_partition_list_t *rktparlist;
+        int par_cnt;
+        int i;
+
+        par_cnt = 0;
+        for (i = 0 ; i<member_cnt ; i++)
+                par_cnt += members[i].rkgm_assignment->cnt;
+
+        rktparlist = rd_kafka_topic_partition_list_new(par_cnt);
+
+        for (i = 0 ; i<member_cnt ; i++) {
+                rd_kafka_group_member_t *rkgm = &members[i];
+                rd_kafka_topic_partition_list_concat(rktparlist,
+                                                     rkgm->rkgm_assignment,
+                                                     rkgm);
+        }
+
+        return rktparlist;
+}
+
+
 /**
  * @brief Run group assignment.
  */
@@ -788,6 +869,126 @@ rd_kafka_cgrp_assignor_run (rd_kafka_cgrp_t *rkcg,
                      rkcg->rkcg_group_id->str,
                      rkas->rkas_protocol_name->str,
                      member_cnt);
+
+        /* https://cwiki.apache.org/confluence/display/KAFKA/KIP-429%3A+Kafk\
+           a+Consumer+Incremental+Rebalance+Protocol */
+        if (rkas->rkas_supported_protocols ==
+            RD_KAFKA_ASSIGNOR_PROTOCOL_COOPERATIVE) {
+                int i;
+                int total_assigned = 0;
+
+                rd_kafka_topic_partition_list_t *assigned =
+                        rd_kafka_collect_assigned_partitions(members,
+                                                             member_cnt);
+                rd_kafka_topic_partition_list_t *owned =
+                        rd_kafka_collect_owned_partitions(members,
+                                                          member_cnt);
+
+                rd_kafka_topic_partition_list_t *maybe_revoking =
+                        rd_kafka_topic_partition_list_set_intersect(assigned,
+                                                                    owned);
+
+                rd_kafka_topic_partition_list_t *ready_to_migrate =
+                        rd_kafka_topic_partition_list_set_subtract(assigned,
+                                                                   owned);
+
+                rd_kafka_topic_partition_list_t *unknown_but_owned =
+                        rd_kafka_topic_partition_list_set_subtract(owned,
+                                                                   assigned);
+
+                for (i = 0 ; i < member_cnt ; i++) {
+                        rd_kafka_group_member_t *rkgm = &members[i];
+                        rd_kafka_topic_partition_list_destroy(
+                                rkgm->rkgm_assignment);
+
+                        /* Rough guess at a size that is a bit higher than
+                           the maximum number of partitions likely to be
+                           assigned to any partition. */
+                        rd_kafka_topic_partition_list_new(
+                                assigned->cnt / member_cnt + 4);
+                }
+
+                /**
+                 * For maybe-revoking-partitions, check if the owner has
+                 * changed. If yes, exclude them from the assigned-partitions
+                 * list to the new owner. The old owner will realize it does
+                 * not own it any more, revoke it and then trigger another
+                 * rebalance for these partitions to finally be reassigned.
+                 */
+                for (i = 0 ; i < maybe_revoking->cnt ; i++) {
+                        rd_kafka_topic_partition_t *toppar;
+                        rd_kafka_group_member_t *member;
+
+                        toppar = &maybe_revoking->elems[i];
+                        if (!toppar->opaque)
+                                continue;
+
+                        member = toppar->opaque;
+                        rd_kafka_topic_partition_list_add(
+                                member->rkgm_assignment,
+                                toppar->topic,
+                                toppar->partition);
+
+                        total_assigned++;
+                }
+
+                /*
+                 * For ready-to-migrate-partitions, it is safe to move them
+                 * to the new member immediately since we know no one owns
+                 * it before, and hence we can encode the owner from the
+                 * newly-assigned-partitions directly.
+                 */
+                for (i = 0 ; i < ready_to_migrate->cnt ; i++) {
+                        rd_kafka_topic_partition_t *toppar =
+                                &ready_to_migrate->elems[i];
+                        rd_kafka_group_member_t *member =
+                                toppar->opaque;
+
+                        rd_kafka_topic_partition_list_add(
+                                member->rkgm_assignment,
+                                toppar->topic,
+                                toppar->partition);
+
+                        total_assigned++;
+                }
+
+                /*
+                 * For unknown-but-owned-partitions, it is also safe to just
+                 * give them back to whoever claimed to be their owners by
+                 * encoding them directly as well. If this is due to a topic
+                 * metadata update, then a later rebalance will be triggered
+                 * anyway.
+                 */
+                for (i = 0 ; i < unknown_but_owned->cnt ; i++) {
+                        rd_kafka_topic_partition_t *toppar =
+                                &ready_to_migrate->elems[i];
+                        rd_kafka_group_member_t *member =
+                                toppar->opaque;
+
+                        rd_kafka_topic_partition_list_add(
+                                member->rkgm_assignment,
+                                toppar->topic,
+                                toppar->partition);
+
+                        total_assigned++;
+                }
+
+                rd_kafka_dbg(rkcg->rkcg_rk, CGRP|RD_KAFKA_DBG_CONSUMER, "CGRP",
+                     "Group \"%s\": \"%s\": adjusting assignment for "
+                     "COOPERATIVE protocol. Maybe revoking: %d, ready to "
+                     "migrate: %d, unknown but owned: %d, total owned: %d, "
+                     "total assigned (pre/post) %d/%d",
+                     rkcg->rkcg_group_id->str, rkas->rkas_protocol_name->str,
+                     maybe_revoking->cnt, ready_to_migrate->cnt,
+                     unknown_but_owned->cnt, owned->cnt, assigned->cnt,
+                     total_assigned);
+
+                rd_kafka_topic_partition_list_destroy(maybe_revoking);
+                rd_kafka_topic_partition_list_destroy(ready_to_migrate);
+                rd_kafka_topic_partition_list_destroy(unknown_but_owned);
+                rd_kafka_topic_partition_list_destroy(assigned);
+                rd_kafka_topic_partition_list_destroy(owned);
+        }
 
         rd_kafka_cgrp_set_join_state(rkcg, RD_KAFKA_CGRP_JOIN_STATE_WAIT_SYNC);
 
@@ -4092,7 +4293,6 @@ void rd_kafka_cgrp_handle_SyncGroup (rd_kafka_cgrp_t *rkcg,
 }
 
 
-
 rd_kafka_consumer_group_metadata_t *
 rd_kafka_consumer_group_metadata_new (const char *group_id) {
         rd_kafka_consumer_group_metadata_t *cgmetadata;
@@ -4391,6 +4591,59 @@ static int unittest_consumer_group_metadata (void) {
 }
 
 
+static int unittest_concat (void) {
+        rd_kafka_topic_partition_list_t *dst;
+        rd_kafka_topic_partition_list_t *a;
+        rd_kafka_topic_partition_list_t *b;
+
+        rd_kafka_group_member_t *rkgm1 =
+                rd_malloc(sizeof(rd_kafka_group_member_t));
+        rd_kafka_group_member_t *rkgm2 =
+                rd_malloc(sizeof(rd_kafka_group_member_t));
+
+        /* undersized, to test grow. */
+        dst = rd_kafka_topic_partition_list_new(2);
+
+        a = rd_kafka_topic_partition_list_new(2);
+        rd_kafka_topic_partition_list_add(a, "t1", 0);
+        rd_kafka_topic_partition_list_add(a, "t2", 3);
+        rd_kafka_topic_partition_list_concat(dst, a, rkgm1);
+
+        b = rd_kafka_topic_partition_list_new(2);
+        rd_kafka_topic_partition_list_add(b, "t3", 7);
+        rd_kafka_topic_partition_list_add(b, "t4", 9);
+        rd_kafka_topic_partition_list_concat(dst, b, rkgm2);
+
+        RD_UT_ASSERT(dst->size >= 4, "unexpected dst size: %d", dst->size);
+        RD_UT_ASSERT(dst->cnt == 4, "unexpected dst cnt: %d", dst->cnt);
+        RD_UT_ASSERT(dst->elems[0].partition == 0,
+                     "unexpected el 0 partition: %d", dst->elems[0].partition);
+        RD_UT_ASSERT(dst->elems[0].opaque == rkgm1,
+                     "unexpected el 0 opaque");
+        RD_UT_ASSERT(dst->elems[1].partition == 3,
+                     "unexpected el 1 partition: %d", dst->elems[0].partition);
+        RD_UT_ASSERT(dst->elems[2].partition == 7,
+                     "unexpected el 2 partition: %d", dst->elems[0].partition);
+        RD_UT_ASSERT(dst->elems[2].opaque == rkgm2,
+                     "unexpected el 2 opaque");
+        RD_UT_ASSERT(dst->elems[3].partition == 9,
+                     "unexpected el 3 partition: %d", dst->elems[0].partition);
+        RD_UT_ASSERT(!strcmp(dst->elems[0].topic, "t1"),
+                     "unexpected el 0 topic: %s", dst->elems[0].topic);
+        RD_UT_ASSERT(!strcmp(dst->elems[3].topic, "t4"),
+                     "unexpected el 3 topic: %s", dst->elems[0].topic);
+
+        rd_kafka_topic_partition_list_destroy(a);
+        rd_kafka_topic_partition_list_destroy(b);
+        rd_kafka_topic_partition_list_destroy(dst);
+
+        rd_free(rkgm1);
+        rd_free(rkgm2);
+
+        RD_UT_PASS();
+}
+
+
 /**
  * @brief Consumer group unit tests
  */
@@ -4398,6 +4651,7 @@ int unittest_cgrp (void) {
         int fails = 0;
 
         fails += unittest_consumer_group_metadata();
+        fails += unittest_concat();
 
         return fails;
 }

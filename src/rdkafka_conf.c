@@ -935,7 +935,9 @@ static const struct rd_kafka_property rd_kafka_properties[] = {
           "members of the group to assign partitions to group members. If "
           "there is more than one eligible strategy, preference is "
           "determined by the order of this list (strategies earlier in the "
-          "list have higher priority).",
+          "list have higher priority). All strategies must use the same "
+          "protocol (i.e. EAGER or COOPREATIVE). Online migration between "
+          "assignors utilizing different protocols is not supported.",
 	  .sdef = "range,roundrobin" },
         { _RK_GLOBAL|_RK_CGRP|_RK_HIGH, "session.timeout.ms", _RK_C_INT,
           _RK(group_session_timeout_ms),
@@ -3459,6 +3461,10 @@ const char *rd_kafka_conf_finalize (rd_kafka_type_t cltype,
 #endif
 
         if (cltype == RD_KAFKA_CONSUMER) {
+                rd_kafka_assignor_t *rkas;
+                int i;
+                int assignor_protocol;
+
                 /* Automatically adjust `fetch.max.bytes` to be >=
                  * `message.max.bytes` unless set by user. */
                 if (rd_kafka_conf_is_modified(conf, "fetch.max.bytes")) {
@@ -3493,6 +3499,27 @@ const char *rd_kafka_conf_finalize (rd_kafka_type_t cltype,
 
                 /* Simplifies rd_kafka_is_idempotent() which is producer-only */
                 conf->eos.idempotence = 0;
+
+                RD_LIST_FOREACH(rkas, &conf->partition_assignors, i) {
+                        if (i == 0) {
+                                assignor_protocol =
+                                        rkas->rkas_supported_protocols;
+
+                                rd_assert(assignor_protocol ==
+                                    RD_KAFKA_ASSIGNOR_PROTOCOL_EAGER ||
+                                    assignor_protocol ==
+                                    RD_KAFKA_ASSIGNOR_PROTOCOL_COOPERATIVE);
+                        } else {
+                                if (assignor_protocol !=
+                                    rkas->rkas_supported_protocols)
+                                        return "All assignors must have "
+                                               "the same protocol type. "
+                                               "Online migration between "
+                                               "assignors with different "
+                                               "protocol types is not "
+                                               "supported";
+                        }
+                }
 
         } else if (cltype == RD_KAFKA_PRODUCER) {
                 if (conf->eos.transactional_id) {

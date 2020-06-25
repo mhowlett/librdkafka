@@ -557,7 +557,8 @@ void rd_kafka_topic_partition_list_sort_by_topic (
         rd_kafka_topic_partition_list_t *rktparlist);
 
 void
-rd_kafka_topic_partition_list_reset_offsets (rd_kafka_topic_partition_list_t *rktparlist,
+rd_kafka_topic_partition_list_reset_offsets (rd_kafka_topic_partition_list_t
+                                             *rktparlist,
 					     int64_t offset);
 
 int rd_kafka_topic_partition_list_set_offsets (
@@ -567,6 +568,16 @@ int rd_kafka_topic_partition_list_set_offsets (
 
 int rd_kafka_topic_partition_list_count_abs_offsets (
 	const rd_kafka_topic_partition_list_t *rktparlist);
+
+rd_kafka_topic_partition_list_t *
+rd_kafka_topic_partition_list_set_intersect(
+        const rd_kafka_topic_partition_list_t *a,
+        const rd_kafka_topic_partition_list_t *b);
+
+rd_kafka_topic_partition_list_t *
+rd_kafka_topic_partition_list_set_subtract(
+        const rd_kafka_topic_partition_list_t *a,
+        const rd_kafka_topic_partition_list_t *b);
 
 rd_kafka_toppar_t *
 rd_kafka_topic_partition_get_toppar (rd_kafka_t *rk,
