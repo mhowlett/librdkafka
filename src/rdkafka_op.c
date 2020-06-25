@@ -65,6 +65,7 @@ const char *rd_kafka_op2str (rd_kafka_op_type_t type) {
                 [RD_KAFKA_OP_TERMINATE] = "REPLY:TERMINATE",
                 [RD_KAFKA_OP_COORD_QUERY] = "REPLY:COORD_QUERY",
                 [RD_KAFKA_OP_SUBSCRIBE] = "REPLY:SUBSCRIBE",
+                [RD_KAFKA_OP_REJOIN] = "REPLY:REJOIN",
                 [RD_KAFKA_OP_ASSIGN] = "REPLY:ASSIGN",
                 [RD_KAFKA_OP_GET_SUBSCRIPTION] = "REPLY:GET_SUBSCRIPTION",
                 [RD_KAFKA_OP_GET_ASSIGNMENT] = "REPLY:GET_ASSIGNMENT",
@@ -190,6 +191,7 @@ rd_kafka_op_t *rd_kafka_op_new0 (const char *source, rd_kafka_op_type_t type) {
                 [RD_KAFKA_OP_TERMINATE] = 0,
                 [RD_KAFKA_OP_COORD_QUERY] = 0,
                 [RD_KAFKA_OP_SUBSCRIBE] = sizeof(rko->rko_u.subscribe),
+                [RD_KAFKA_OP_REJOIN] = 0,
                 [RD_KAFKA_OP_ASSIGN] = sizeof(rko->rko_u.assign),
                 [RD_KAFKA_OP_GET_SUBSCRIPTION] = sizeof(rko->rko_u.subscribe),
                 [RD_KAFKA_OP_GET_ASSIGNMENT] = sizeof(rko->rko_u.assign),
@@ -264,7 +266,9 @@ void rd_kafka_op_destroy (rd_kafka_op_t *rko) {
 		break;
 
 	case RD_KAFKA_OP_REBALANCE:
-		RD_IF_FREE(rko->rko_u.rebalance.partitions,
+		RD_IF_FREE(rko->rko_u.rebalance.revoke_partitions,
+			   rd_kafka_topic_partition_list_destroy);
+		RD_IF_FREE(rko->rko_u.rebalance.assign_partitions,
 			   rd_kafka_topic_partition_list_destroy);
 		break;
 

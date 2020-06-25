@@ -236,9 +236,10 @@ int rd_kafka_assignor_topic_cmp (const void *_a, const void *_b) {
 }
 
 /**
- * Maps the available topics to the group members' subscriptions
- * and updates the `member` map with the proper list of eligible topics,
- * the latter are returned in `eligible_topics`.
+ * Determine the complete set of topics that match at least one of
+ * the group member subscriptions. Associate with each of these the
+ * complete set of members that are subscribed to it. The result is
+ * returned in `eligible_topics`.
  */
 static void
 rd_kafka_member_subscriptions_map (rd_kafka_cgrp_t *rkcg,
@@ -312,7 +313,8 @@ rd_kafka_assignor_run (rd_kafka_cgrp_t *rkcg,
         rd_list_t eligible_topics;
         int j;
 
-        /* Map available topics to subscribing members */
+        /* Construct eligible_topics, a map of:
+         *    topic -> set of members that are subscribed to it. */
         rd_kafka_member_subscriptions_map(rkcg, &eligible_topics, metadata,
                                           members, member_cnt);
 
