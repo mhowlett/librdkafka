@@ -3562,15 +3562,15 @@ rd_kafka_cgrp_op_serve (rd_kafka_t *rk, rd_kafka_q_t *rkq,
                                         rko->rko_u.assign.partitions);
                                 break;
                         case RD_KAFKA_ASSIGN_METHOD_INCR_ASSIGN:
-                                if (error = rd_kafka_cgrp_incremental_assign(
+                                if ((error = rd_kafka_cgrp_incremental_assign(
                                                 rkcg,
-                                                rko->rko_u.assign.partitions))
+                                                rko->rko_u.assign.partitions)))
                                         err = rd_kafka_error_code(error);
                                 break;
                         case RD_KAFKA_ASSIGN_METHOD_INCR_UNASSIGN:
-                                if (error = rd_kafka_cgrp_incremental_unassign(
+                                if ((error = rd_kafka_cgrp_incremental_unassign(
                                                 rkcg,
-                                                rko->rko_u.assign.partitions))
+                                                rko->rko_u.assign.partitions)))
                                         err = rd_kafka_error_code(error);
                                 break;
                         default:

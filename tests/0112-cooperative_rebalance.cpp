@@ -85,16 +85,16 @@ static void direct_assign_test_1(RdKafka::KafkaConsumer *consumer,
   std::vector<RdKafka::TopicPartition *> assignment;
 
   test_assert(assignment.size() == 0, "Expecting current assignment to have size 0");
-  if (error = consumer->incremental_assign(toppars1)) {
+  if ((error = consumer->incremental_assign(toppars1))) {
     Test::Fail("Incremental assign failed: " + error->str());
     delete error;
   }
-  if (err = consumer->assignment(assignment)) Test::Fail("Failed to get current assignment: " + RdKafka::err2str(err));
+  if ((err = consumer->assignment(assignment))) Test::Fail("Failed to get current assignment: " + RdKafka::err2str(err));
   test_assert(assignment.size() == 1, "Expecting current assignment to have size 1");
   delete assignment[0];
   assignment.clear();
-  if (err = consumer->unassign()) Test::Fail("Unassign failed: " + RdKafka::err2str(err));
-  if (err = consumer->assignment(assignment)) Test::Fail("Failed to get current assignment: " + RdKafka::err2str(err));
+  if ((err = consumer->unassign())) Test::Fail("Unassign failed: " + RdKafka::err2str(err));
+  if ((err = consumer->assignment(assignment))) Test::Fail("Failed to get current assignment: " + RdKafka::err2str(err));
   test_assert(assignment.size() == 0, "Expecting current assignment to have size 0");
 }
 
@@ -108,16 +108,16 @@ static void direct_assign_test_2(RdKafka::KafkaConsumer *consumer,
   std::vector<RdKafka::TopicPartition *> assignment;
 
   test_assert(assignment.size() == 0, "Expecting current assignment to have size 0");
-  if (err = consumer->assign(toppars1)) Test::Fail("Assign failed: " + RdKafka::err2str(err));
-  if (err = consumer->assignment(assignment)) Test::Fail("Failed to get current assignment: " + RdKafka::err2str(err));
+  if ((err = consumer->assign(toppars1))) Test::Fail("Assign failed: " + RdKafka::err2str(err));
+  if ((err = consumer->assignment(assignment))) Test::Fail("Failed to get current assignment: " + RdKafka::err2str(err));
   test_assert(assignment.size() == 1, "Expecting current assignment to have size 1");
   delete assignment[0];
   assignment.clear();
-  if (error = consumer->incremental_unassign(toppars1)) {
+  if ((error = consumer->incremental_unassign(toppars1))) {
     Test::Fail("Incremental unassign failed: " + error->str());
     delete error;
   }
-  if (err = consumer->assignment(assignment)) Test::Fail("Failed to get current assignment: " + RdKafka::err2str(err));
+  if ((err = consumer->assignment(assignment))) Test::Fail("Failed to get current assignment: " + RdKafka::err2str(err));
   test_assert(assignment.size() == 0, "Expecting current assignment to have size 0");
 }
 
@@ -131,19 +131,19 @@ static void direct_assign_test_3(RdKafka::KafkaConsumer *consumer,
   std::vector<RdKafka::TopicPartition *> assignment;
 
   test_assert(assignment.size() == 0, "Expecting current assignment to have size 0");
-  if (error = consumer->incremental_assign(toppars1)) {
+  if ((error = consumer->incremental_assign(toppars1))) {
     Test::Fail("Incremental assign failed: " + error->str());
     delete error;
   }
-  if (err = consumer->assignment(assignment)) Test::Fail("Failed to get current assignment: " + RdKafka::err2str(err));
+  if ((err = consumer->assignment(assignment))) Test::Fail("Failed to get current assignment: " + RdKafka::err2str(err));
   test_assert(assignment.size() == 1, "Expecting current assignment to have size 1");
   delete assignment[0];
   assignment.clear();
-  if (error = consumer->incremental_unassign(toppars1)) {
+  if ((error = consumer->incremental_unassign(toppars1))) {
     Test::Fail("Incremental unassign failed: " + error->str());
     delete error;
   }
-  if (err = consumer->assignment(assignment)) Test::Fail("Failed to get current assignment: " + RdKafka::err2str(err));
+  if ((err = consumer->assignment(assignment))) Test::Fail("Failed to get current assignment: " + RdKafka::err2str(err));
   test_assert(assignment.size() == 0, "Expecting current assignment to have size 0");
 }
 
@@ -160,7 +160,6 @@ static void direct_assign_test_4(RdKafka::KafkaConsumer *consumer,
   delete assignment[0];
   assignment.clear();
   RdKafka::Message *m = consumer->consume(5000);
-  RdKafka::ErrorCode e = m->err();
   test_assert(m->err() == RdKafka::ErrorCode::ERR_NO_ERROR, "Expecting a consumed message.");
   test_assert(m->len() == 100, "Expecting msg len to be 100"); // implies read from topic 1.
   delete m;
@@ -211,17 +210,17 @@ static void direct_assign_test_5(RdKafka::KafkaConsumer *consumer,
   std::vector<RdKafka::TopicPartition *> toppars3;
 
   test_assert(assignment.size() == 0, "Expecting current assignment to have size 0");
-  if (error = consumer->incremental_assign(toppars3)) {
+  if ((error = consumer->incremental_assign(toppars3))) {
     Test::Fail("Incremental assign failed: " + error->str());
     delete error;
   }
-  if (err = consumer->assignment(assignment)) Test::Fail("Failed to get current assignment: " + RdKafka::err2str(err));
+  if ((err = consumer->assignment(assignment))) Test::Fail("Failed to get current assignment: " + RdKafka::err2str(err));
   test_assert(assignment.size() == 0, "Expecting current assignment to have size 0");
-  if (error = consumer->incremental_unassign(toppars3)) {
+  if ((error = consumer->incremental_unassign(toppars3))) {
     Test::Fail("Incremental unassign failed: " + error->str());
     delete error;
   }
-  if (err = consumer->assignment(assignment)) Test::Fail("Failed to get current assignment: " + RdKafka::err2str(err));
+  if ((err = consumer->assignment(assignment))) Test::Fail("Failed to get current assignment: " + RdKafka::err2str(err));
   test_assert(assignment.size() == 0, "Expecting current assignment to have size 0");
 }
 
