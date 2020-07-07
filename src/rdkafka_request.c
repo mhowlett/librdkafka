@@ -1358,7 +1358,7 @@ void rd_kafka_JoinGroupRequest (rd_kafka_broker_t *rkb,
         int i;
         int16_t ApiVersion = 0;
         int features;
-
+fprintf(stderr, "JoinGroupRequest, rkcg_assignment: %p\n", rk->rk_cgrp->rkcg_assignment);
         ApiVersion = rd_kafka_broker_ApiVersion_supported(rkb,
                                                           RD_KAFKAP_JoinGroup,
                                                           0, 5,
@@ -1392,6 +1392,7 @@ void rd_kafka_JoinGroupRequest (rd_kafka_broker_t *rkb,
 		if (!rkas->rkas_enabled)
 			continue;
                 rd_kafka_buf_write_kstr(rkbuf, rkas->rkas_protocol_name);
+fprintf(stderr, "rd_kafka_JoinGroupRequest member: \"%s\"\n", member_id->str);
                 member_metadata = rkas->rkas_get_metadata_cb(
                         rkas, rk->rk_cgrp->rkcg_assignor_state, topics,
                         rk->rk_cgrp->rkcg_assignment);

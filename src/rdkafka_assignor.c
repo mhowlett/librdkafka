@@ -143,11 +143,13 @@ rd_kafka_consumer_protocol_member_metadata_new (
               * assignors at the present time (up to and including v2.5) */
                 rd_kafka_buf_write_bytes(rkbuf, "", 0);
         /* Following data is ignored by v0 consumers */
-        if (!owned_partitions)
+        if (!owned_partitions) {
+fprintf(stderr, "writing empty owned partitions\n");
                 /* If there are no owned partitions, this is specified as an
                  * empty array, not NULL. */
                 rd_kafka_buf_write_i32(rkbuf, 0); /* Topic count */
-        else
+        } else {
+fprintf(stderr, "writing owned partitions to buf %d\n", owned_partitions->cnt);
                 rd_kafka_buf_write_topic_partitions(
                         rkbuf,
                         owned_partitions,
@@ -155,6 +157,7 @@ rd_kafka_consumer_protocol_member_metadata_new (
                         rd_false /*don't write offsets*/,
                         rd_false /*don't write epoch*/,
                         rd_false /*don't write metadata*/);
+        }
 
         /* Get binary buffer and allocate a new Kafka Bytes with a copy. */
         rd_slice_init_full(&rkbuf->rkbuf_reader, &rkbuf->rkbuf_buf);
@@ -575,7 +578,7 @@ int rd_kafka_assignors_init (rd_kafka_t *rk, char *errstr, size_t errstr_size) {
                 else if (!strcmp(s, "sticky"))
 			rd_kafka_assignor_add(
                                 rk, &rkas, "consumer", "sticky",
-                                RD_KAFKA_ASSIGNOR_PROTOCOL_EAGER,
+                                RD_KAFKA_ASSIGNOR_PROTOCOL_COOPERATIVE,
                                 rd_kafka_sticky_assignor_assign_cb,
                                 rd_kafka_sticky_assignor_get_metadata,
                                 rd_kafka_sticky_assignor_on_assignment_cb,

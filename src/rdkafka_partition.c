@@ -2823,12 +2823,14 @@ rd_kafka_topic_partition_list_copy (const rd_kafka_topic_partition_list_t *src){
 
 /**
  * @brief Set intersection. Returns a list of all elements of \p a that
- *        are also elements of \p b. Additionally, compares the opaque
+ *        are also elements of \p b. Additionally, compares the _private
  *        field of matching elements from \p a and \p b and if equal sets
- *        the opaque field in the result element to 1, else 0.
+ *        the opaque field in the result element to 1 and the _private
+ *        field to equal that of the elements, else sets the opaque field
+ *        to 0 and _private field to NULL.
  *
- * @remarks Preconditions: \p a and \p b must not be NULL and must not
- *          contain duplicate elements.
+ * @remarks \p a and \p b must not contain duplicate elements. NULL
+ *          lists are treated as empty.
  *
  * @warning This is an O(Na*Nb) operation.
  */
@@ -2837,11 +2839,13 @@ rd_kafka_topic_partition_list_set_intersect(
                 const rd_kafka_topic_partition_list_t *a,
                 const rd_kafka_topic_partition_list_t *b) {
         int i, j;
-        rd_kafka_topic_partition_list_t *rktparlist =
-                rd_kafka_topic_partition_list_new(RD_MIN(a->cnt, b->cnt));
+        rd_kafka_topic_partition_list_t *rktparlist;
 
-        rd_assert(a);
-        rd_assert(b);
+        if (!a || !b)
+                return rd_kafka_topic_partition_list_new(0);
+
+        rktparlist =
+                rd_kafka_topic_partition_list_new(RD_MIN(a->cnt, b->cnt));
 
         /**
          * FIXME: If the list sizes are larger than X we could sort them
@@ -2859,8 +2863,13 @@ rd_kafka_topic_partition_list_set_intersect(
                                                                   el_a->topic,
                                                                   el_a->
                                                                   partition);
-                                toppar->opaque = el_a->opaque ==
-                                                 el_b->opaque ? (void *)1 : (void *)0;
+                                if (el_a->_private == el_b->_private) {
+                                        toppar->opaque = (void *)1;
+                                        toppar->_private = el_a->_private;
+                                } else {
+                                        toppar->opaque = (void *)0;
+                                        toppar->_private = NULL;
+                                }
                                 break;
                         }
                 }
@@ -2872,10 +2881,12 @@ rd_kafka_topic_partition_list_set_intersect(
 
 /**
  * @brief Set subtraction. Returns a list of all elemets of \p a
- *        that are not elements of \p b.
+ *        that are not elements of \p b. Sets the _private field in
+ *        elements in the returned list to equal that of the
+ *        corresponding element in \p a
  *
- * @remarks Preconditions: \p a and \p b must not be NULL and must not
- *          contain duplicate elements.
+ * @remarks \p a and \p b must not contain duplicate elements. NULL
+ *          lists are treated as empty.
  *
  * @warning This is an O(Na*Nb) operation.
  */
@@ -2885,10 +2896,10 @@ rd_kafka_topic_partition_list_set_subtract(
                 const rd_kafka_topic_partition_list_t *b) {
         int i, j;
         rd_kafka_topic_partition_list_t *rktparlist =
-                rd_kafka_topic_partition_list_new(a->cnt);
+                rd_kafka_topic_partition_list_new(a == NULL ? 0 : a->cnt);
 
-        rd_assert(a);
-        rd_assert(b);
+        if (a == NULL)
+                return rktparlist;
 
         /**
          * FIXME: If the list sizes are larger than X we could sort them
@@ -2897,7 +2908,7 @@ rd_kafka_topic_partition_list_set_subtract(
         for (i = 0 ; i < a->cnt ; i++) {
                 rd_kafka_topic_partition_t *el_a = &a->elems[i];
                 rd_bool_t found = rd_false;
-                for (j = 0 ; j < b->cnt ; j++) {
+                for (j = 0 ; b && j < b->cnt ; j++) {
                         rd_kafka_topic_partition_t *el_b = &b->elems[j];
                         if (el_a->partition == el_b->partition &&
                             strcmp(el_a->topic, el_b->topic) == 0) {
@@ -2905,10 +2916,14 @@ rd_kafka_topic_partition_list_set_subtract(
                                 break;
                         }
                 }
-                if (!found)
-                        rd_kafka_topic_partition_list_add(rktparlist,
-                                                          el_a->topic,
-                                                          el_a->partition);
+                if (!found) {
+                        rd_kafka_topic_partition_t *toppar;
+                        toppar = rd_kafka_topic_partition_list_add(
+                                rktparlist,
+                                el_a->topic,
+                                el_a->partition);
+                        toppar->_private = el_a->_private;
+                }
         }
 
         return rktparlist;
@@ -3981,8 +3996,8 @@ static int unittest_set_subtract (void) {
 int unittest_partition (void) {
         int fails = 0;
 
-        // fails += unittest_set_intersect();
-        // fails += unittest_set_subtract();
+        fails += unittest_set_intersect();
+        fails += unittest_set_subtract();
 
         return fails;
 }

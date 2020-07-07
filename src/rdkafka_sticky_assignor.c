@@ -35,8 +35,8 @@
  *
  */
 
-
 // NOTE: Currently the Range assignor implementation.
+
 
 rd_kafka_resp_err_t
 rd_kafka_sticky_assignor_assign_cb (rd_kafka_t *rk,
@@ -154,8 +154,9 @@ rd_kafka_sticky_assignor_get_metadata (const rd_kafka_assignor_t *rkas,
 	 */
 
 	if (!assignor_state) {
+fprintf(stderr, "sticky assignor: no assignor_state\n");
 		return rd_kafka_consumer_protocol_member_metadata_new(
-			topics, NULL, 0, owned_partitions);
+			topics, NULL, 0, NULL);
 	}
 
 	state = (rd_kafka_sticky_assignor_state_t *)assignor_state;
@@ -164,7 +165,7 @@ rd_kafka_sticky_assignor_get_metadata (const rd_kafka_assignor_t *rkas,
 	rd_assert(state->prev_assignment != NULL);
 	rd_kafka_buf_write_topic_partitions(
                 rkbuf,
-                state->prev_assignment,
+                state->prev_assignment,  // TODO: how necessary is this really?
                 rd_false /*skip invalid offsets*/,
                 rd_false /*write offsets*/,
                 rd_false /*write epoch*/,
