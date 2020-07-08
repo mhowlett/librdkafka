@@ -532,8 +532,9 @@ rd_kafka_op_t *rd_kafka_op_new_cb (rd_kafka_t *rk,
                                    rd_kafka_op_type_t type,
                                    rd_kafka_op_cb_t *cb);
 int rd_kafka_op_reply (rd_kafka_op_t *rko,
-                       rd_kafka_resp_err_t err,
-                       rd_kafka_error_t *error);
+                       rd_kafka_resp_err_t err);
+int rd_kafka_op_error_reply (rd_kafka_op_t *rko,
+                             rd_kafka_error_t *error);
 
 #define rd_kafka_op_set_prio(rko,prio) ((rko)->rko_prio = prio)
 

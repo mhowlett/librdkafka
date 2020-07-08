@@ -3436,7 +3436,7 @@ rd_kafka_cgrp_op_serve (rd_kafka_t *rk, rd_kafka_q_t *rkq,
                 if (rkcg->rkcg_member_id)
                         rko->rko_u.name.str =
                                 RD_KAFKAP_STR_DUP(rkcg->rkcg_member_id);
-                rd_kafka_op_reply(rko, 0, NULL);
+                rd_kafka_op_reply(rko, 0);
                 rko = NULL;
                 break;
 
@@ -3449,7 +3449,7 @@ rd_kafka_cgrp_op_serve (rd_kafka_t *rk, rd_kafka_q_t *rkq,
                                 RD_KAFKAP_STR_DUP(rkcg->rkcg_member_id),
                                 rkcg->rkcg_rk->rk_conf.group_instance_id)
                         : NULL;
-                rd_kafka_op_reply(rko, RD_KAFKA_RESP_ERR_NO_ERROR, NULL);
+                rd_kafka_op_reply(rko, RD_KAFKA_RESP_ERR_NO_ERROR);
                 rko = NULL;
                 break;
 
@@ -3539,7 +3539,7 @@ rd_kafka_cgrp_op_serve (rd_kafka_t *rk, rd_kafka_q_t *rkq,
                 if (!err) /* now owned by rkcg */
                         rko->rko_u.subscribe.topics = NULL;
 
-                rd_kafka_op_reply(rko, err, NULL);
+                rd_kafka_op_reply(rko, err);
                 rko = NULL;
                 break;
 
@@ -3550,8 +3550,14 @@ rd_kafka_cgrp_op_serve (rd_kafka_t *rk, rd_kafka_q_t *rkq,
                         /* Treat all assignments as unassign
                          * when terminating. */
                         rd_kafka_cgrp_unassign(rkcg);
+
                         if (rko->rko_u.assign.partitions)
                                 err = RD_KAFKA_RESP_ERR__DESTROY;
+
+                        error = !err ? NULL
+                                     : rd_kafka_error_new(
+                                                err,
+                                                rd_kafka_err2str(err));
                 } else {
                         switch (rko->rko_u.assign.type)
                         {
@@ -3560,25 +3566,28 @@ rd_kafka_cgrp_op_serve (rd_kafka_t *rk, rd_kafka_q_t *rkq,
                                  * or unassignment (payload == NULL) */
                                 err = rd_kafka_cgrp_assign(rkcg,
                                         rko->rko_u.assign.partitions);
+                                error = !err ? NULL
+                                             : rd_kafka_error_new(
+                                                        err,
+                                                        rd_kafka_err2str(err));
                                 break;
                         case RD_KAFKA_ASSIGN_METHOD_INCR_ASSIGN:
-                                if ((error = rd_kafka_cgrp_incremental_assign(
+                                error = rd_kafka_cgrp_incremental_assign(
                                                 rkcg,
-                                                rko->rko_u.assign.partitions)))
-                                        err = rd_kafka_error_code(error);
+                                                rko->rko_u.assign.partitions);
                                 break;
                         case RD_KAFKA_ASSIGN_METHOD_INCR_UNASSIGN:
-                                if ((error = rd_kafka_cgrp_incremental_unassign(
+                                error = rd_kafka_cgrp_incremental_unassign(
                                                 rkcg,
-                                                rko->rko_u.assign.partitions)))
-                                        err = rd_kafka_error_code(error);
+                                                rko->rko_u.assign.partitions);
                                 break;
                         default:
                                 rd_assert(0);
                                 break;
                         }
                 }
-                rd_kafka_op_reply(rko, err, error);
+
+                rd_kafka_op_error_reply(rko, error);
                 rko = NULL;
                 break;
 
@@ -3587,7 +3596,7 @@ rd_kafka_cgrp_op_serve (rd_kafka_t *rk, rd_kafka_q_t *rkq,
                         rko->rko_u.subscribe.topics =
                                 rd_kafka_topic_partition_list_copy(
                                         rkcg->rkcg_subscription);
-                rd_kafka_op_reply(rko, 0, NULL);
+                rd_kafka_op_reply(rko, 0);
                 rko = NULL;
                 break;
 
@@ -3597,7 +3606,7 @@ rd_kafka_cgrp_op_serve (rd_kafka_t *rk, rd_kafka_q_t *rkq,
                                 rd_kafka_topic_partition_list_copy(
                                         rkcg->rkcg_assignment);
 
-                rd_kafka_op_reply(rko, 0, NULL);
+                rd_kafka_op_reply(rko, 0);
                 rko = NULL;
                 break;
 

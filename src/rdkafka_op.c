@@ -481,27 +481,52 @@ rd_kafka_op_t *rd_kafka_op_new_cb (rd_kafka_t *rk,
 
 
 /**
- * @brief Reply to 'rko' re-using the same rko with rko_err and
- *        rko_error as specified by \p err and \p error
+ * @brief Reply to 'rko' re-using the same rko with rko_err
+ *        specified by \p err. rko_error is set to NULL.
  *
  * If there is no replyq the rko is destroyed.
  *
  * @returns 1 if op was enqueued, else 0 and rko is destroyed.
  */
 int rd_kafka_op_reply (rd_kafka_op_t *rko,
-                       rd_kafka_resp_err_t err,
-                       rd_kafka_error_t *error) {
+                       rd_kafka_resp_err_t err) {
 
         if (!rko->rko_replyq.q) {
-		rd_kafka_op_destroy(rko);
+                rd_kafka_op_destroy(rko);
                 return 0;
-	}
+        }
 
-	rko->rko_type |= (rko->rko_op_cb ? RD_KAFKA_OP_CB : RD_KAFKA_OP_REPLY);
+        rko->rko_type |= (rko->rko_op_cb ? RD_KAFKA_OP_CB : RD_KAFKA_OP_REPLY);
         rko->rko_err   = err;
-        rko->rko_error = error;
+        rko->rko_error = NULL;
 
 	return rd_kafka_replyq_enq(&rko->rko_replyq, rko, 0);
+}
+
+
+/**
+ * @brief Reply to 'rko' re-using the same rko with rko_error specified
+ *        by \p error (may be NULL) and rko_err set to the corresponding
+ *        error code.
+ *
+ * If there is no replyq the rko is destroyed.
+ *
+ * @returns 1 if op was enqueued, else 0 and rko is destroyed.
+ */
+int rd_kafka_op_error_reply (rd_kafka_op_t *rko,
+                             rd_kafka_error_t *error) {
+
+        if (!rko->rko_replyq.q) {
+                rd_kafka_op_destroy(rko);
+                return 0;
+        }
+
+        rko->rko_type |= (rko->rko_op_cb ? RD_KAFKA_OP_CB : RD_KAFKA_OP_REPLY);
+        rko->rko_err   = error ? rd_kafka_error_code(error)
+                               : RD_KAFKA_RESP_ERR_NO_ERROR;
+        rko->rko_error = error;
+
+        return rd_kafka_replyq_enq(&rko->rko_replyq, rko, 0);
 }
 
 

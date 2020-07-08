@@ -3649,8 +3649,8 @@ rd_kafka_resp_err_t rd_kafka_consumer_close (rd_kafka_t *rk);
  * list is empty. \p partitions must not be NULL. This method may also be
  * used outside the context of a rebalance callback.
  *
- * @returns An error object indicating if the new assignment was applied or
- *          not.
+ * @returns NULL on success, or an error object if the operation was
+ *          unsuccessful.
  *
  * @remark The returned error object (if not NULL) must be destroyed with
  *         rd_kafka_error_destroy().
@@ -3672,8 +3672,8 @@ rd_kafka_incremental_assign (rd_kafka_t *rk,
  * list is empty. \p partitions must not be NULL. This method may also be
  * used outside the context of a rebalance callback.
  *
- * @returns An error object indicating if the new assignment was applied or
- *          not.
+ * @returns NULL on success, or an error object if the operation was
+ *          unsuccessful.
  *
  * @remark The returned error object (if not NULL) must be destroyed with
  *         rd_kafka_error_destroy().

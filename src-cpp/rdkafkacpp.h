@@ -2423,8 +2423,8 @@ public:
    * passed to the callback (or a copy of it), even if the list is empty.
    * This method may also be used outside the context of a rebalance callback.
    *
-   * @returns An error object indicating if the new assignment was applied or
-   *          not.
+   * @returns NULL on success, or an error object if the operation was
+   *          unsuccessful.
    *
    * @remark The returned object must be deleted by the application.
    */
@@ -2440,8 +2440,8 @@ public:
    * passed to the callback (or a copy of it), even if the list is empty.
    * This method may also be used outside the context of a rebalance callback.
    *
-   * @returns An error object indicating if the new assignment was applied or
-   *          not.
+   * @returns NULL on success, or an error object if the operation was
+   *          unsuccessful.
    *
    * @remark The returned object must be deleted by the application.
    */
