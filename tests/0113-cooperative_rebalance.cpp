@@ -427,7 +427,7 @@ void subscribe_test() {
 
 
 extern "C" {
-  int main_0112_cooperative_rebalance (int argc, char **argv) {
+  int main_0113_cooperative_rebalance (int argc, char **argv) {
     // direct_assign_tests();
     subscribe_test();
     return 0;

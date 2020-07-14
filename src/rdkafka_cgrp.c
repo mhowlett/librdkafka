@@ -36,6 +36,7 @@
 #include "rdkafka_metadata.h"
 #include "rdkafka_cgrp.h"
 #include "rdkafka_interceptor.h"
+#include "rdmap.h"
 
 #include "rdunittest.h"
 
@@ -75,6 +76,37 @@ static void rd_kafka_cgrp_rebalance (rd_kafka_cgrp_t *rkcg,
 static void
 rd_kafka_cgrp_max_poll_interval_check_tmr_cb (rd_kafka_timers_t *rkts,
                                               void *arg);
+
+
+
+/**
+ * @struct Auxillary glue type used for COOPERATIVE rebalance set operations.
+ */
+typedef struct PartitionMemberInfo_s {
+        const rd_kafka_group_member_t *member;
+        rd_bool_t members_match;
+} PartitionMemberInfo_t;
+
+static PartitionMemberInfo_t *PartitionMemberInfo_new (
+                const rd_kafka_group_member_t *member,
+                rd_bool_t members_match) {
+        PartitionMemberInfo_t *pmi;
+
+        pmi = rd_malloc(sizeof(*pmi));
+        pmi->member = member;
+        pmi->members_match = members_match;
+
+        return pmi;
+}
+
+static void PartitionMemberInfo_free (void *p) {
+        PartitionMemberInfo_t *pmi = p;
+        rd_free(pmi);
+}
+
+typedef RD_MAP_TYPE(const rd_kafka_topic_partition_t *,
+                    PartitionMemberInfo_t *) map_toppar_member_info_t;
+
 
 static rd_kafka_error_t *
 rd_kafka_cgrp_incremental_assign (rd_kafka_cgrp_t *rkcg,
@@ -844,84 +876,136 @@ rd_kafka_rebalance_op (rd_kafka_cgrp_t *rkcg,
 }
 
 
-
-
 /**
- * @brief Appends a new rd_kafka_topic_partition_t corresponding to each
- *        element of list \p src to list \p dst. The _private field is set
- *        to \p rkgm.
+ * @brief Collect all assigned or owned partitions from group members.
+ *        The member field of each result element is set to the associated
+ *        group member. The members_match field is set to rd_false.
+ *
+ * @param members Array of group members.
+ * @param member_cnt Number of elements in members.
+ * @param par_cnt The total number of partitions expected to be collected.
+ * @param collect_owned If rd_true, rkgm_owned partitions will be collected,
+ *        else rdgm_assignment partitions will be collected.
  */
-static void rd_kafka_topic_partition_list_concat (
-                rd_kafka_topic_partition_list_t *dst,
-                const rd_kafka_topic_partition_list_t *src,
-                rd_kafka_group_member_t *rkgm) {
-        int i;
+static map_toppar_member_info_t *
+rd_kafka_collect_partitions (rd_kafka_group_member_t *members,
+                             size_t member_cnt,
+                             size_t par_cnt,
+                             rd_bool_t collect_owned) {
+        size_t i, j;
+        map_toppar_member_info_t *collected = rd_calloc(1, sizeof(*collected));
 
-        rd_assert(src);
-        rd_assert(dst);
+        RD_MAP_INIT(
+                collected,
+                par_cnt,
+                rd_kafka_topic_partition_cmp,
+                rd_kafka_topic_partition_hash,
+                rd_kafka_topic_partition_destroy_free,
+                PartitionMemberInfo_free);
 
-        for (i = 0 ; i < src->cnt ; i++) {
-                rd_kafka_topic_partition_t *rktp;
-                rktp = rd_kafka_topic_partition_list_add(dst,
-                        src->elems[i].topic, src->elems[i].partition);
-                rktp->_private = rkgm;
+        for (i = 0 ; i<member_cnt ; i++) {
+                rd_kafka_group_member_t *rkgm = &members[i];
+                const rd_kafka_topic_partition_list_t *toppars = collect_owned
+                        ? rkgm->rkgm_owned
+                        : rkgm->rkgm_assignment;
+
+                for (j = 0; j<(size_t)toppars->cnt; j++) {
+                        rd_kafka_topic_partition_t *rktp =
+                                rd_kafka_topic_partition_copy(
+                                        &toppars->elems[j]);
+                        PartitionMemberInfo_t *pmi =
+                                PartitionMemberInfo_new(rkgm, rd_false);
+                        RD_MAP_SET(collected, rktp, pmi);
+                }
         }
+
+        return collected;
 }
 
 
 /**
- * @brief Collect all owned partitions from all members. The _private
- *        field of each is set to the associated group member.
+ * @brief Set intersection. Returns a set of all elements of \p a that
+ *        are also elements of \p b. Additionally, compares the members
+ *        field of matching elements from \p a and \p b and if equal sets
+ *        the members_match field in the result element to rd_true and
+ *        the member field to equal that of the elements, else sets the
+ *        members_match field to rd_false and member field to NULL.
  */
-static rd_kafka_topic_partition_list_t *
-rd_kafka_collect_owned_partitions (rd_kafka_group_member_t *members,
-                                   int member_cnt) {
-        rd_kafka_topic_partition_list_t *rktparlist;
-        int par_cnt;
-        int i;
+map_toppar_member_info_t *
+rd_kafka_member_partitions_intersect (
+                map_toppar_member_info_t *a,
+                map_toppar_member_info_t *b) {
+        const rd_kafka_topic_partition_t *k;
+        const PartitionMemberInfo_t *a_v;
+        map_toppar_member_info_t *intersection =
+                rd_calloc(1, sizeof(*intersection));
 
-        par_cnt = 0;
-        for (i = 0 ; i<member_cnt ; i++)
-                par_cnt += members[i].rkgm_owned->cnt;
+        RD_MAP_INIT(
+                intersection,
+                RD_MIN(RD_MAP_CNT(a), RD_MAP_CNT(b)),
+                rd_kafka_topic_partition_cmp,
+                rd_kafka_topic_partition_hash,
+                rd_kafka_topic_partition_destroy_free,
+                PartitionMemberInfo_free);
 
-        rktparlist = rd_kafka_topic_partition_list_new(par_cnt);
+        if (!a || !b)
+                return intersection;
 
-        for (i = 0 ; i<member_cnt ; i++) {
-                rd_kafka_group_member_t *rkgm = members + i;
-                rd_kafka_topic_partition_list_concat(rktparlist,
-                                                     rkgm->rkgm_owned,
-                                                     rkgm);
+        RD_MAP_FOREACH(k, a_v, a) {
+                const PartitionMemberInfo_t *b_v = RD_MAP_GET(b, k);
+
+                if (b_v == NULL)
+                        continue;
+
+                RD_MAP_SET(intersection,
+                           rd_kafka_topic_partition_copy(k),
+                           PartitionMemberInfo_new(b_v->member,
+                                                   (rd_bool_t)
+                                                   (b_v->member ==
+                                                    a_v->member)));
         }
 
-        return rktparlist;
+        return intersection;
 }
 
 
 /**
- * @brief Collect all assigned partitions from all members. The _private
- *        field of each is set to the associated group member.
+ * @brief Set subtraction. Returns a set of all elemets of \p a
+ *        that are not elements of \p b. Sets the member field in
+ *        elements in the returned set to equal that of the
+ *        corresponding element in \p a
  */
-static rd_kafka_topic_partition_list_t *
-rd_kafka_collect_assigned_partitions (rd_kafka_group_member_t *members,
-                                      int member_cnt) {
-        rd_kafka_topic_partition_list_t *rktparlist;
-        int par_cnt;
-        int i;
+map_toppar_member_info_t *
+rd_kafka_member_partitions_subtract (
+                map_toppar_member_info_t *a,
+                map_toppar_member_info_t *b) {
+        const rd_kafka_topic_partition_t *k;
+        const PartitionMemberInfo_t *a_v;
+        map_toppar_member_info_t *difference =
+                rd_calloc(1, sizeof(*difference));
 
-        par_cnt = 0;
-        for (i = 0 ; i<member_cnt ; i++)
-                par_cnt += members[i].rkgm_assignment->cnt;
+        RD_MAP_INIT(
+                difference,
+                !a ? 0 : RD_MAP_CNT(a),
+                rd_kafka_topic_partition_cmp,
+                rd_kafka_topic_partition_hash,
+                rd_kafka_topic_partition_destroy_free,
+                PartitionMemberInfo_free);
 
-        rktparlist = rd_kafka_topic_partition_list_new(par_cnt);
+        if (!a)
+                return difference;
 
-        for (i = 0 ; i<member_cnt ; i++) {
-                rd_kafka_group_member_t *rkgm = members + i;
-                rd_kafka_topic_partition_list_concat(rktparlist,
-                                                     rkgm->rkgm_assignment,
-                                                     rkgm);
+        RD_MAP_FOREACH(k, a_v, a) {
+                const PartitionMemberInfo_t *b_v = RD_MAP_GET(b, k);
+
+                if (!b_v)
+                        RD_MAP_SET(difference,
+                                   rd_kafka_topic_partition_copy(k),
+                                   PartitionMemberInfo_new(a_v->member,
+                                                           rd_false));
         }
 
-        return rktparlist;
+        return difference;
 }
 
 
@@ -936,6 +1020,8 @@ rd_kafka_cgrp_assignor_run (rd_kafka_cgrp_t *rkcg,
                             rd_kafka_group_member_t *members,
                             int member_cnt) {
         char errstr[512];
+        const rd_kafka_topic_partition_t *toppar;
+        const PartitionMemberInfo_t *pmi;
 
         if (err) {
                 rd_snprintf(errstr, sizeof(errstr),
@@ -971,28 +1057,37 @@ rd_kafka_cgrp_assignor_run (rd_kafka_cgrp_t *rkcg,
                 int i;
                 int total_assigned = 0;
                 int not_revoking = 0;
+                size_t par_cnt = 0;
 
-                rd_kafka_topic_partition_list_t *assigned =
-                        rd_kafka_collect_assigned_partitions(members,
-                                                             member_cnt);
-                rd_kafka_topic_partition_list_t *owned =
-                        rd_kafka_collect_owned_partitions(members,
-                                                          member_cnt);
+                for (i = 0 ; i<member_cnt ; i++)
+                        par_cnt += members[i].rkgm_owned->cnt;
+
+                map_toppar_member_info_t *assigned =
+                        rd_kafka_collect_partitions(members,
+                                                    member_cnt,
+                                                    par_cnt,
+                                                    rd_false);
+
+                map_toppar_member_info_t *owned =
+                        rd_kafka_collect_partitions(members,
+                                                    member_cnt,
+                                                    par_cnt,
+                                                    rd_true);
 
                 /* still owned by some members */
-                rd_kafka_topic_partition_list_t *maybe_revoking =
-                        rd_kafka_topic_partition_list_set_intersect(assigned,
-                                                                    owned);
+                map_toppar_member_info_t *maybe_revoking =
+                        rd_kafka_member_partitions_intersect(assigned,
+                                                             owned);
 
                 /* not previously owned by anyone */
-                rd_kafka_topic_partition_list_t *ready_to_migrate =
-                        rd_kafka_topic_partition_list_set_subtract(assigned,
-                                                                   owned);
+                map_toppar_member_info_t *ready_to_migrate =
+                        rd_kafka_member_partitions_subtract(assigned,
+                                                            owned);
 
                 /* don't exist in assigned partitions */
-                rd_kafka_topic_partition_list_t *unknown_but_owned =
-                        rd_kafka_topic_partition_list_set_subtract(owned,
-                                                                   assigned);
+                map_toppar_member_info_t *unknown_but_owned =
+                        rd_kafka_member_partitions_subtract(owned,
+                                                            assigned);
 
                 for (i = 0 ; i < member_cnt ; i++) {
                         rd_kafka_group_member_t *rkgm = &members[i];
@@ -1004,7 +1099,7 @@ rd_kafka_cgrp_assignor_run (rd_kafka_cgrp_t *rkcg,
                            assigned to any partition. */
                         rkgm->rkgm_assignment =
                                 rd_kafka_topic_partition_list_new(
-                                        assigned->cnt / member_cnt + 4);
+                                        RD_MAP_CNT(assigned) / member_cnt + 4);
                 }
 
                 /**
@@ -1014,23 +1109,17 @@ rd_kafka_cgrp_assignor_run (rd_kafka_cgrp_t *rkcg,
                  * not own it any more, revoke it and then trigger another
                  * rebalance for these partitions to finally be reassigned.
                  */
-                for (i = 0 ; i < maybe_revoking->cnt ; i++) {
-                        rd_kafka_topic_partition_t *toppar;
-                        rd_kafka_group_member_t *member;
-
-                        toppar = &maybe_revoking->elems[i];
-                        if (!toppar->opaque)
+                RD_MAP_FOREACH(toppar, pmi, maybe_revoking) {
+                        if (!pmi->members_match)
                                 /* owner has changed. */
                                 continue;
 
                         /* owner hasn't changed. */
-                        member = toppar->_private;
                         rd_kafka_topic_partition_list_add(
-                                member->rkgm_assignment,
+                                pmi->member->rkgm_assignment,
                                 toppar->topic,
                                 toppar->partition);
 
-                        toppar->_private = NULL;
                         total_assigned++;
                         not_revoking++;
                 }
@@ -1041,18 +1130,11 @@ rd_kafka_cgrp_assignor_run (rd_kafka_cgrp_t *rkcg,
                  * it before, and hence we can encode the owner from the
                  * newly-assigned-partitions directly.
                  */
-                for (i = 0 ; i < ready_to_migrate->cnt ; i++) {
-                        rd_kafka_topic_partition_t *toppar =
-                                &ready_to_migrate->elems[i];
-                        rd_kafka_group_member_t *member =
-                                toppar->_private;
-                        toppar->_private = NULL;
-
+                RD_MAP_FOREACH(toppar, pmi, ready_to_migrate) {
                         rd_kafka_topic_partition_list_add(
-                                member->rkgm_assignment,
+                                pmi->member->rkgm_assignment,
                                 toppar->topic,
                                 toppar->partition);
-
                         total_assigned++;
                 }
 
@@ -1063,18 +1145,11 @@ rd_kafka_cgrp_assignor_run (rd_kafka_cgrp_t *rkcg,
                  * metadata update, then a later rebalance will be triggered
                  * anyway.
                  */
-                for (i = 0 ; i < unknown_but_owned->cnt ; i++) {
-                        rd_kafka_topic_partition_t *toppar =
-                                &ready_to_migrate->elems[i];
-                        rd_kafka_group_member_t *member =
-                                toppar->_private;
-                        toppar->_private = NULL;
-
+                RD_MAP_FOREACH(toppar, pmi, unknown_but_owned) {
                         rd_kafka_topic_partition_list_add(
-                                member->rkgm_assignment,
+                                pmi->member->rkgm_assignment,
                                 toppar->topic,
                                 toppar->partition);
-
                         total_assigned++;
                 }
 
@@ -1084,19 +1159,16 @@ rd_kafka_cgrp_assignor_run (rd_kafka_cgrp_t *rkcg,
                      "revoking: %d, ready to migrate: %d, unknown but owned: "
                      "%d, assigned %d",
                      rkcg->rkcg_group_id->str, rkas->rkas_protocol_name->str,
-                     owned->cnt, assigned->cnt, maybe_revoking->cnt, ready_to_migrate->cnt,
-                     unknown_but_owned->cnt, total_assigned);
+                     (int)RD_MAP_CNT(owned), (int)RD_MAP_CNT(assigned),
+                     (int)RD_MAP_CNT(maybe_revoking),
+                     (int)RD_MAP_CNT(ready_to_migrate),
+                     (int)RD_MAP_CNT(unknown_but_owned), total_assigned);
 
-                for (i = 0; i < assigned->cnt ; i++)
-                        assigned->elems[i]._private = NULL;
-                for (i = 0; i < owned->cnt ; i++)
-                        owned->elems[i]._private = NULL;
-
-                rd_kafka_topic_partition_list_destroy(maybe_revoking);
-                rd_kafka_topic_partition_list_destroy(ready_to_migrate);
-                rd_kafka_topic_partition_list_destroy(unknown_but_owned);
-                rd_kafka_topic_partition_list_destroy(assigned);
-                rd_kafka_topic_partition_list_destroy(owned);
+                RD_MAP_DESTROY(maybe_revoking);
+                RD_MAP_DESTROY(ready_to_migrate);
+                RD_MAP_DESTROY(unknown_but_owned);
+                RD_MAP_DESTROY(assigned);
+                RD_MAP_DESTROY(owned);
         }
 
         rd_kafka_cgrp_set_join_state(rkcg, RD_KAFKA_CGRP_JOIN_STATE_WAIT_SYNC);
@@ -3299,6 +3371,57 @@ rd_kafka_cgrp_assign (rd_kafka_cgrp_t *rkcg,
 }
 
 
+/**
+ * @brief Construct a typed map from list \p list with key corresponding to
+ *        each element in the list and value NULL.
+ */
+static map_toppar_member_info_t *
+rd_kafka_toppar_list_to_map (rd_kafka_topic_partition_list_t *list) {
+        int i;
+
+        if (!list)
+                return NULL;
+
+        map_toppar_member_info_t *map = rd_calloc(1, sizeof(*map));
+
+        RD_MAP_INIT(
+                map,
+                list->cnt,
+                rd_kafka_topic_partition_cmp,
+                rd_kafka_topic_partition_hash,
+                rd_kafka_topic_partition_destroy_free,
+                PartitionMemberInfo_free);
+
+        for (i = 0; i<list->cnt; i++)
+                RD_MAP_SET(map,
+                           rd_kafka_topic_partition_copy(&list->elems[i]),
+                           PartitionMemberInfo_new(NULL, rd_false));
+
+        return map;
+}
+
+
+/**
+ * @brief Construct a toppar list from map \p map with elements corresponding
+ *        to the keys of \p map.
+ */
+static rd_kafka_topic_partition_list_t *
+rd_kafka_toppar_map_to_list (map_toppar_member_info_t *map) {
+        const rd_kafka_topic_partition_t *k;
+        rd_kafka_topic_partition_list_t *list =
+                rd_kafka_topic_partition_list_new(RD_MAP_CNT(map));
+
+        if (!map)
+                return NULL;
+
+        RD_MAP_FOREACH_KEY(k, map) {
+                rd_kafka_topic_partition_list_add(list,
+                                                  k->topic,
+                                                  k->partition);
+        }
+
+        return list;
+}
 
 
 /**
@@ -3317,13 +3440,22 @@ rd_kafka_cgrp_handle_assignment (rd_kafka_cgrp_t *rkcg,
 				 rd_kafka_topic_partition_list_t *assignment) {
         if (rkcg->rkcg_assignor->rkas_supported_protocols &
             RD_KAFKA_ASSIGNOR_PROTOCOL_COOPERATIVE) {
-                rd_kafka_topic_partition_list_t *newly_added;
-                rd_kafka_topic_partition_list_t *revoked;
+                map_toppar_member_info_t *new_assignment_set =
+                        rd_kafka_toppar_list_to_map(assignment);
+                map_toppar_member_info_t *old_assignment_set =
+                        rd_kafka_toppar_list_to_map(rkcg->rkcg_assignment);
 
-                newly_added = rd_kafka_topic_partition_list_set_subtract(
-                                assignment, rkcg->rkcg_assignment);
-                revoked = rd_kafka_topic_partition_list_set_subtract(
-                                rkcg->rkcg_assignment, assignment);
+                map_toppar_member_info_t *newly_added_set =
+                        rd_kafka_member_partitions_subtract(
+                                new_assignment_set, old_assignment_set);
+                map_toppar_member_info_t *revoked_set =
+                        rd_kafka_member_partitions_subtract(
+                                old_assignment_set, new_assignment_set);
+
+                rd_kafka_topic_partition_list_t *newly_added =
+                        rd_kafka_toppar_map_to_list(newly_added_set);
+                rd_kafka_topic_partition_list_t *revoked =
+                        rd_kafka_toppar_map_to_list(revoked_set);
 
                 if (revoked->cnt > 0) {
                         rd_kafka_rebalance_op_cooperative(rkcg,
@@ -3338,6 +3470,10 @@ rd_kafka_cgrp_handle_assignment (rd_kafka_cgrp_t *rkcg,
 
                 rd_kafka_topic_partition_list_destroy(newly_added);
                 rd_kafka_topic_partition_list_destroy(revoked);
+                RD_MAP_DESTROY(revoked_set);
+                RD_MAP_DESTROY(newly_added_set);
+                RD_MAP_DESTROY(old_assignment_set);
+                RD_MAP_DESTROY(new_assignment_set);
         } else
                 rd_kafka_rebalance_op(rkcg,
                               RD_KAFKA_RESP_ERR__ASSIGN_PARTITIONS,
@@ -4759,54 +4895,179 @@ static int unittest_consumer_group_metadata (void) {
 }
 
 
-static int unittest_concat (void) {
-        rd_kafka_topic_partition_list_t *dst;
-        rd_kafka_topic_partition_list_t *a;
-        rd_kafka_topic_partition_list_t *b;
+static int unittest_set_intersect (void) {
+        size_t par_cnt = 10;
+        map_toppar_member_info_t *dst;
+        rd_kafka_topic_partition_t *toppar;
+        PartitionMemberInfo_t *v;
 
-        rd_kafka_group_member_t *rkgm1 =
-                rd_malloc(sizeof(rd_kafka_group_member_t));
-        rd_kafka_group_member_t *rkgm2 =
-                rd_malloc(sizeof(rd_kafka_group_member_t));
+        map_toppar_member_info_t a = RD_MAP_INITIALIZER(
+                par_cnt,
+                rd_kafka_topic_partition_cmp,
+                rd_kafka_topic_partition_hash,
+                rd_kafka_topic_partition_destroy_free,
+                PartitionMemberInfo_free);
 
-        /* undersized, to test grow. */
-        dst = rd_kafka_topic_partition_list_new(2);
+        map_toppar_member_info_t b = RD_MAP_INITIALIZER(
+                par_cnt,
+                rd_kafka_topic_partition_cmp,
+                rd_kafka_topic_partition_hash,
+                rd_kafka_topic_partition_destroy_free,
+                PartitionMemberInfo_free);
 
-        a = rd_kafka_topic_partition_list_new(2);
-        rd_kafka_topic_partition_list_add(a, "t1", 0);
-        rd_kafka_topic_partition_list_add(a, "t2", 3);
-        rd_kafka_topic_partition_list_concat(dst, a, rkgm1);
+        RD_MAP_SET(&a,
+                   rd_kafka_topic_partition_new("t1", 4),
+                   PartitionMemberInfo_new((rd_kafka_group_member_t *)10,
+                                           rd_false));
+        RD_MAP_SET(&a,
+                   rd_kafka_topic_partition_new("t2", 4),
+                   PartitionMemberInfo_new(NULL, rd_false));
+        RD_MAP_SET(&a,
+                   rd_kafka_topic_partition_new("t1", 7),
+                   PartitionMemberInfo_new(NULL, rd_false));
 
-        b = rd_kafka_topic_partition_list_new(2);
-        rd_kafka_topic_partition_list_add(b, "t3", 7);
-        rd_kafka_topic_partition_list_add(b, "t4", 9);
-        rd_kafka_topic_partition_list_concat(dst, b, rkgm2);
+        RD_MAP_SET(&b,
+                   rd_kafka_topic_partition_new("t2", 7),
+                   PartitionMemberInfo_new(NULL, rd_false));
+        RD_MAP_SET(&b,
+                   rd_kafka_topic_partition_new("t1", 4),
+                   PartitionMemberInfo_new((rd_kafka_group_member_t *)10,
+                                           rd_false));
 
-        RD_UT_ASSERT(dst->size >= 4, "unexpected dst size: %d", dst->size);
-        RD_UT_ASSERT(dst->cnt == 4, "unexpected dst cnt: %d", dst->cnt);
-        RD_UT_ASSERT(dst->elems[0].partition == 0,
-                     "unexpected el 0 partition: %d", dst->elems[0].partition);
-        RD_UT_ASSERT(dst->elems[0].opaque == rkgm1,
-                     "unexpected el 0 opaque");
-        RD_UT_ASSERT(dst->elems[1].partition == 3,
-                     "unexpected el 1 partition: %d", dst->elems[0].partition);
-        RD_UT_ASSERT(dst->elems[2].partition == 7,
-                     "unexpected el 2 partition: %d", dst->elems[0].partition);
-        RD_UT_ASSERT(dst->elems[2].opaque == rkgm2,
-                     "unexpected el 2 opaque");
-        RD_UT_ASSERT(dst->elems[3].partition == 9,
-                     "unexpected el 3 partition: %d", dst->elems[0].partition);
-        RD_UT_ASSERT(!strcmp(dst->elems[0].topic, "t1"),
-                     "unexpected el 0 topic: %s", dst->elems[0].topic);
-        RD_UT_ASSERT(!strcmp(dst->elems[3].topic, "t4"),
-                     "unexpected el 3 topic: %s", dst->elems[0].topic);
+        dst = rd_kafka_member_partitions_intersect(&a, &b);
 
-        rd_kafka_topic_partition_list_destroy(a);
-        rd_kafka_topic_partition_list_destroy(b);
-        rd_kafka_topic_partition_list_destroy(dst);
+        RD_UT_ASSERT(RD_MAP_CNT(&a) == 3,
+                     "expected a cnt to be 3 not %d", (int)RD_MAP_CNT(&a));
+        RD_UT_ASSERT(RD_MAP_CNT(&b) == 2,
+                     "expected b cnt to be 2 not %d", (int)RD_MAP_CNT(&b));
+        RD_UT_ASSERT(RD_MAP_CNT(dst) == 1,
+                     "expected dst cnt to be 1 not %d", (int)RD_MAP_CNT(dst));
 
-        rd_free(rkgm1);
-        rd_free(rkgm2);
+        toppar = rd_kafka_topic_partition_new("t1", 4);
+        RD_UT_ASSERT((v = RD_MAP_GET(dst, toppar)), "unexpected element");
+        RD_UT_ASSERT(v->members_match, "unexpected members to match");
+        rd_kafka_topic_partition_destroy(toppar);
+
+        RD_MAP_DESTROY(&a);
+        RD_MAP_DESTROY(&b);
+        RD_MAP_DESTROY(dst);
+
+        RD_UT_PASS();
+}
+
+
+static int unittest_set_subtract (void) {
+        size_t par_cnt = 10;
+        rd_kafka_topic_partition_t *toppar;
+        map_toppar_member_info_t *dst;
+
+        map_toppar_member_info_t a = RD_MAP_INITIALIZER(
+                par_cnt,
+                rd_kafka_topic_partition_cmp,
+                rd_kafka_topic_partition_hash,
+                rd_kafka_topic_partition_destroy_free,
+                PartitionMemberInfo_free);
+
+        map_toppar_member_info_t b = RD_MAP_INITIALIZER(
+                par_cnt,
+                rd_kafka_topic_partition_cmp,
+                rd_kafka_topic_partition_hash,
+                rd_kafka_topic_partition_destroy_free,
+                PartitionMemberInfo_free);
+
+        RD_MAP_SET(&a,
+                   rd_kafka_topic_partition_new("t1", 4),
+                   PartitionMemberInfo_new(NULL, rd_false));
+        RD_MAP_SET(&a,
+                   rd_kafka_topic_partition_new("t2", 7),
+                   PartitionMemberInfo_new(NULL, rd_false));
+
+        RD_MAP_SET(&b,
+                   rd_kafka_topic_partition_new("t2", 4),
+                   PartitionMemberInfo_new(NULL, rd_false));
+        RD_MAP_SET(&b,
+                   rd_kafka_topic_partition_new("t1", 4),
+                   PartitionMemberInfo_new(NULL, rd_false));
+        RD_MAP_SET(&b,
+                   rd_kafka_topic_partition_new("t1", 7),
+                   PartitionMemberInfo_new(NULL, rd_false));
+
+        dst = rd_kafka_member_partitions_subtract(&a, &b);
+
+        RD_UT_ASSERT(RD_MAP_CNT(&a) == 2,
+                     "expected a cnt to be 2 not %d", (int)RD_MAP_CNT(&a));
+        RD_UT_ASSERT(RD_MAP_CNT(&b) == 3,
+                     "expected b cnt to be 3 not %d", (int)RD_MAP_CNT(&b));
+        RD_UT_ASSERT(RD_MAP_CNT(dst) == 1,
+                     "expected dst cnt to be 1 not %d", (int)RD_MAP_CNT(dst));
+
+        toppar = rd_kafka_topic_partition_new("t2", 7);
+        RD_UT_ASSERT(RD_MAP_GET(dst, toppar), "unexpected element");
+        rd_kafka_topic_partition_destroy(toppar);
+
+        RD_MAP_DESTROY(&a);
+        RD_MAP_DESTROY(&b);
+        RD_MAP_DESTROY(dst);
+
+        RD_UT_PASS();
+}
+
+
+static int unittest_map_to_list (void) {
+        rd_kafka_topic_partition_list_t *list;
+
+        map_toppar_member_info_t map = RD_MAP_INITIALIZER(
+                10,
+                rd_kafka_topic_partition_cmp,
+                rd_kafka_topic_partition_hash,
+                rd_kafka_topic_partition_destroy_free,
+                PartitionMemberInfo_free);
+
+        RD_MAP_SET(&map,
+                   rd_kafka_topic_partition_new("t1", 101),
+                   PartitionMemberInfo_new(NULL, rd_false));
+
+        list = rd_kafka_toppar_map_to_list(&map);
+
+        RD_UT_ASSERT(list->cnt == 1,
+                     "expecting list size of 1 not %d.", list->cnt);
+        RD_UT_ASSERT(list->elems[0].partition == 101,
+                     "expecting partition 101 not %d",
+                     list->elems[0].partition);
+        RD_UT_ASSERT(!strcmp(list->elems[0].topic, "t1"),
+                     "expecting topic 't1', not %s", list->elems[0].topic);
+
+        rd_kafka_topic_partition_list_destroy(list);
+        RD_MAP_DESTROY(&map);
+
+        RD_UT_PASS();
+}
+
+
+static int unittest_list_to_map (void) {
+        rd_kafka_topic_partition_t *toppar;
+        map_toppar_member_info_t *map;
+        rd_kafka_topic_partition_list_t *list =
+                rd_kafka_topic_partition_list_new(1);
+
+        rd_kafka_topic_partition_list_add(list, "topic1", 201);
+        rd_kafka_topic_partition_list_add(list, "topic2", 202);
+
+        map = rd_kafka_toppar_list_to_map(list);
+
+        RD_UT_ASSERT(RD_MAP_CNT(map) == 2,
+                    "expected map cnt to be 2 not %d", (int)RD_MAP_CNT(map));
+        toppar = rd_kafka_topic_partition_new("topic1", 201);
+        RD_UT_ASSERT(RD_MAP_GET(map, toppar),
+                     "expected topic1 [201] to exist in map");
+        rd_kafka_topic_partition_destroy(toppar);
+        toppar = rd_kafka_topic_partition_new("topic2", 202);
+        RD_UT_ASSERT(RD_MAP_GET(map, toppar),
+                     "expected topic2 [202] to exist in map");
+        rd_kafka_topic_partition_destroy(toppar);
+
+        RD_MAP_DESTROY(map);
+        rd_kafka_topic_partition_list_destroy(list);
 
         RD_UT_PASS();
 }
@@ -4819,7 +5080,10 @@ int unittest_cgrp (void) {
         int fails = 0;
 
         fails += unittest_consumer_group_metadata();
-        fails += unittest_concat();
+        fails += unittest_set_intersect();
+        fails += unittest_set_subtract();
+        fails += unittest_map_to_list();
+        fails += unittest_list_to_map();
 
         return fails;
 }

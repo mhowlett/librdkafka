@@ -589,16 +589,6 @@ int
 rd_kafka_topic_partition_list_cmp (const void *_a, const void *_b,
                                    int (*cmp) (const void *, const void *));
 
-rd_kafka_topic_partition_list_t *
-rd_kafka_topic_partition_list_set_intersect(
-        const rd_kafka_topic_partition_list_t *a,
-        const rd_kafka_topic_partition_list_t *b);
-
-rd_kafka_topic_partition_list_t *
-rd_kafka_topic_partition_list_set_subtract(
-        const rd_kafka_topic_partition_list_t *a,
-        const rd_kafka_topic_partition_list_t *b);
-
 rd_kafka_toppar_t *
 rd_kafka_topic_partition_get_toppar (rd_kafka_t *rk,
                                      rd_kafka_topic_partition_t *rktpar);

@@ -443,7 +443,6 @@ extern int unittest_scram (void);
 #endif
 extern int unittest_assignors (void);
 extern int unittest_map (void);
-extern int unittest_partition (void);
 
 int rd_unittest (void) {
         int fails = 0;
@@ -477,7 +476,6 @@ int rd_unittest (void) {
                 { "scram", unittest_scram },
 #endif
                 { "assignors", unittest_assignors },
-                { "partition", unittest_partition },
                 { NULL }
         };
         int i;
