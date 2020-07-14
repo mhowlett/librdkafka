@@ -860,6 +860,10 @@ rd_kafka_rebalance_op (rd_kafka_cgrp_t *rkcg,
 
 	rko = rd_kafka_op_new(RD_KAFKA_OP_REBALANCE);
 	rko->rko_err = err;
+        // TODO: allow for multiple supported protocols. Currently this
+        //       assumes protocols is set to a single one.
+        rko->rko_u.rebalance.protocol =
+                rkcg->rkcg_assignor->rkas_supported_protocols;
         if (err == RD_KAFKA_RESP_ERR__ASSIGN_PARTITIONS)
                 rko->rko_u.rebalance.assign_partitions =
                         rd_kafka_topic_partition_list_copy(assignment);

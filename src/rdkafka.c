@@ -3437,9 +3437,8 @@ rd_kafka_handle_rebalance_op(rd_kafka_t *rk, rd_kafka_op_t *rko) {
                 rd_kafka_assign(rk, NULL);
         }
 
-        /* COOPERATIVE case */
-        else if (rk->rk_cgrp->rkcg_assignor->rkas_supported_protocols
-                & RD_KAFKA_ASSIGNOR_PROTOCOL_COOPERATIVE) {
+        else if (rko->rko_u.rebalance.protocol ==
+                 RD_KAFKA_ASSIGNOR_PROTOCOL_COOPERATIVE) {
 
                 rk->rk_conf.rebalance_cb(
                         rk, rko->rko_err,
@@ -3475,9 +3474,8 @@ rd_kafka_handle_rebalance_op(rd_kafka_t *rk, rd_kafka_op_t *rko) {
                         RD_NOTREACHED();
         }
 
-        /* EAGER case */
-        else if (rk->rk_cgrp->rkcg_assignor->rkas_supported_protocols
-                        & RD_KAFKA_ASSIGNOR_PROTOCOL_EAGER) {
+        else if (rko->rko_u.rebalance.protocol ==
+                 RD_KAFKA_ASSIGNOR_PROTOCOL_EAGER) {
 
                 rk->rk_conf.rebalance_cb(
                         rk, rko->rko_err,

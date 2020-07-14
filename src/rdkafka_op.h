@@ -293,6 +293,7 @@ struct rd_kafka_op_s {
                 struct {
                         rd_kafka_topic_partition_list_t *revoke_partitions;
                         rd_kafka_topic_partition_list_t *assign_partitions;
+                        int protocol;
                 } rebalance;
 
 		struct {
