@@ -36,10 +36,6 @@
 using namespace std;
 
 
-/**
- * MH: what i'm currently using to debug with. Not finished.
- */
-
 
 static void test_assert (bool cond, std::string msg) {
   if (!cond)
@@ -72,6 +68,7 @@ static void direct_assign_test_1(RdKafka::KafkaConsumer *consumer,
   test_assert(assignment.size() == 0, "Expecting current assignment to have size 0");
 }
 
+
 /** assign, then incremental unassign
  */
 static void direct_assign_test_2(RdKafka::KafkaConsumer *consumer,
@@ -94,6 +91,7 @@ static void direct_assign_test_2(RdKafka::KafkaConsumer *consumer,
   if ((err = consumer->assignment(assignment))) Test::Fail("Failed to get current assignment: " + RdKafka::err2str(err));
   test_assert(assignment.size() == 0, "Expecting current assignment to have size 0");
 }
+
 
 /** incremental assign, then incremental unassign
  */
@@ -120,6 +118,7 @@ static void direct_assign_test_3(RdKafka::KafkaConsumer *consumer,
   if ((err = consumer->assignment(assignment))) Test::Fail("Failed to get current assignment: " + RdKafka::err2str(err));
   test_assert(assignment.size() == 0, "Expecting current assignment to have size 0");
 }
+
 
 /** multi-topic incremental assign and unassign + message consumption.
  */
@@ -173,6 +172,7 @@ static void direct_assign_test_4(RdKafka::KafkaConsumer *consumer,
   test_assert(assignment.size() == 0, "Expecting current assignment to have size 0");
 }
 
+
 /** incremental assign and unassign of empty collection.
  */
 static void direct_assign_test_5(RdKafka::KafkaConsumer *consumer,
@@ -197,6 +197,7 @@ static void direct_assign_test_5(RdKafka::KafkaConsumer *consumer,
   if ((err = consumer->assignment(assignment))) Test::Fail("Failed to get current assignment: " + RdKafka::err2str(err));
   test_assert(assignment.size() == 0, "Expecting current assignment to have size 0");
 }
+
 
 void run_test(std::string &t1, std::string &t2,
               void (*test)(RdKafka::KafkaConsumer *consumer,
@@ -230,6 +231,7 @@ void run_test(std::string &t1, std::string &t2,
     consumer->close();
     delete consumer;
 }
+
 
 void direct_assign_tests() {
     int msgcnt = 1000;
@@ -278,7 +280,7 @@ class ExampleEventCb : public RdKafka::EventCb {
 
  public:
   ExampleEventCb(string name) {
-   myfile.open("/tmp/0112-logs.txt", ios::out | ios::app);
+   myfile.open("/tmp/0113-logs.txt", ios::out | ios::app);
    consumer = name;
   }
 
@@ -317,8 +319,7 @@ class ExampleRebalanceCb : public RdKafka::RebalanceCb {
 private:
   static void part_list_print (const std::vector<RdKafka::TopicPartition*>&partitions){
     for (unsigned int i = 0 ; i < partitions.size() ; i++)
-      std::cerr << partitions[i]->topic() <<
-	"[" << partitions[i]->partition() << "], ";
+      std::cerr << partitions[i]->topic() << "[" << partitions[i]->partition() << "], ";
     std::cerr << "\n";
   }
 
@@ -326,7 +327,7 @@ public:
   void rebalance_cb (RdKafka::KafkaConsumer *consumer,
 		     RdKafka::ErrorCode err,
                      std::vector<RdKafka::TopicPartition*> &partitions) {
-    std::cerr << "RebalanceCb: " << RdKafka::err2str(err) << ": ";
+    std::cerr << "RebalanceCb: " << consumer->name() << " " << RdKafka::err2str(err) << ": ";
 
     part_list_print(partitions);
 
@@ -340,71 +341,76 @@ public:
 };
 
 
-
 void subscribe_test() {
     int test_timeout_s = 120;
     std::string bootstraps;
     std::string errstr;
-    ExampleEventCb ex_event_cb1("C1");
-    ExampleEventCb ex_event_cb2("C#");
+    ExampleEventCb ex_event_cb1("AAA");
+    ExampleEventCb ex_event_cb2("BBB");
+    ExampleRebalanceCb ex_rebalance_cb1;
+    ExampleRebalanceCb ex_rebalance_cb2;
 
     /* construct test topic */
     // int msgcnt = 1000;
     // const int msgsize1 = 100;
     // const int msgsize2 = 200;
-    std::string topic1_str = Test::mk_topic_name("0112-cooperative_rebalance", 1);
+    std::string topic1_str = Test::mk_topic_name("0113-cooperative_rebalance", 1);
     test_create_topic(NULL, topic1_str.c_str(), 2, 1);
     // test_produce_msgs_easy_size(topic1_str.c_str(), 0, 0, msgcnt, msgsize1);
     std::vector<std::string> topics;
     topics.push_back(topic1_str);
 
-
+    fprintf(stderr, "creating consumer #1");
     /* Create consumer 1 */
     RdKafka::Conf *conf;
     Test::conf_init(&conf, NULL, test_timeout_s);
     Test::conf_set(conf, "group.id", "cr-group"); // just reuse a (random) topic name as the group name.
     Test::conf_set(conf, "auto.offset.reset", "earliest");
-    Test::conf_set(conf, "partition.assignment.strategy", "sticky");
+    Test::conf_set(conf, "partition.assignment.strategy", "cooperative-sticky");
     if (conf->get("bootstrap.servers", bootstraps) != RdKafka::Conf::CONF_OK)
       Test::Fail("Failed to retrieve bootstrap.servers");
     conf->set("event_cb", &ex_event_cb1, errstr);
+    conf->set("rebalance_cb", &ex_rebalance_cb1, errstr);
+
     RdKafka::KafkaConsumer *c1 = RdKafka::KafkaConsumer::create(conf, errstr);
     if (!c1)
       Test::Fail("Failed to create KafkaConsumer: " + errstr);
     delete conf;
 
+    fprintf(stderr, "creating consumer #2");
     /* Create consumer 2 */
     Test::conf_init(&conf, NULL, test_timeout_s);
     Test::conf_set(conf, "group.id", "cr-group"); // same group as c1
     Test::conf_set(conf, "auto.offset.reset", "earliest");
-    Test::conf_set(conf, "partition.assignment.strategy", "sticky");
+    Test::conf_set(conf, "partition.assignment.strategy", "cooperative-sticky");
     if (conf->get("bootstrap.servers", bootstraps) != RdKafka::Conf::CONF_OK)
       Test::Fail("Failed to retrieve bootstrap.servers");
     conf->set("event_cb", &ex_event_cb2, errstr);
+    conf->set("rebalance_cb", &ex_rebalance_cb2, errstr);
     RdKafka::KafkaConsumer *c2 = RdKafka::KafkaConsumer::create(conf, errstr);
     if (!c2)
       Test::Fail("Failed to create KafkaConsumer: " + errstr);
     delete conf;
 
-
     /*
     * Consumer #1 subscribe
     */
     RdKafka::ErrorCode err;
+    fprintf(stderr, "subscribing consumer #1\n");
     if ((err = c1->subscribe(topics)))
       Test::Fail("consumer 1 subscribe failed: " + RdKafka::err2str(err));
-
 
     bool run = true;
     int cnt = 0;
     while (run) {
+      fprintf(stderr, "calling c1->consume...\n");
       RdKafka::Message *msg = c1->consume(tmout_multip(1000));
       cnt += 1;
       if (cnt == 5) {
         /*
           * Consumer #2 subscribe
           */
-        fprintf(stderr, "scribing consumer #2");
+        fprintf(stderr, "subscribing consumer #2\n");
         if ((err = c2->subscribe(topics)))
           Test::Fail("consumer 2 subscribe failed: " + RdKafka::err2str(err));
       }
@@ -433,3 +439,9 @@ extern "C" {
     return 0;
   }
 }
+
+
+/* Things to test:
+ *
+ *   - rebalance if no handler set.
+ */

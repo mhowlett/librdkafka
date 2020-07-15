@@ -789,6 +789,8 @@ rd_kafka_rebalance_op_cooperative (rd_kafka_cgrp_t *rkcg,
 
         rko = rd_kafka_op_new(RD_KAFKA_OP_REBALANCE);
         rko->rko_err = err;
+        // TODO: Fix this. allow for multiple protocols.
+        rko->rko_u.rebalance.protocol = rkcg->rkcg_assignor->rkas_supported_protocols;
         rko->rko_u.rebalance.assign_partitions =
                 rd_kafka_topic_partition_list_copy(assign_partitions);
         rko->rko_u.rebalance.revoke_partitions =
@@ -860,8 +862,7 @@ rd_kafka_rebalance_op (rd_kafka_cgrp_t *rkcg,
 
 	rko = rd_kafka_op_new(RD_KAFKA_OP_REBALANCE);
 	rko->rko_err = err;
-        // TODO: allow for multiple supported protocols. Currently this
-        //       assumes protocols is set to a single one.
+        // TODO: Fix this. allow for multiple protocols.
         rko->rko_u.rebalance.protocol =
                 rkcg->rkcg_assignor->rkas_supported_protocols;
         if (err == RD_KAFKA_RESP_ERR__ASSIGN_PARTITIONS)
@@ -1000,7 +1001,8 @@ rd_kafka_member_partitions_subtract (
                 return difference;
 
         RD_MAP_FOREACH(k, a_v, a) {
-                const PartitionMemberInfo_t *b_v = RD_MAP_GET(b, k);
+                const PartitionMemberInfo_t *b_v =
+                        !b ? NULL : RD_MAP_GET(b, k);
 
                 if (!b_v)
                         RD_MAP_SET(difference,
@@ -1077,6 +1079,12 @@ rd_kafka_cgrp_assignor_run (rd_kafka_cgrp_t *rkcg,
                                                     member_cnt,
                                                     par_cnt,
                                                     rd_true);
+
+                rd_kafka_dbg(rkcg->rkcg_rk, CGRP|RD_KAFKA_DBG_CONSUMER, "CGRP",
+                     "Group \"%s\": Partitions owned by members: %d. "
+                     "Partitions assigned by assignor: %d",
+                     rkcg->rkcg_group_id->str,
+                     (int)RD_MAP_CNT(owned), (int)RD_MAP_CNT(assigned));
 
                 /* still owned by some members */
                 map_toppar_member_info_t *maybe_revoking =
@@ -1158,12 +1166,10 @@ rd_kafka_cgrp_assignor_run (rd_kafka_cgrp_t *rkcg,
                 }
 
                 rd_kafka_dbg(rkcg->rkcg_rk, CGRP|RD_KAFKA_DBG_CONSUMER, "CGRP",
-                     "Group \"%s\", strategy \"%s\": COOPERATIVE protocol: "
-                     "owned: %d, assigned by assignor: %d, maybe "
-                     "revoking: %d, ready to migrate: %d, unknown but owned: "
-                     "%d, assigned %d",
-                     rkcg->rkcg_group_id->str, rkas->rkas_protocol_name->str,
-                     (int)RD_MAP_CNT(owned), (int)RD_MAP_CNT(assigned),
+                     "Group \"%s\": COOPERATIVE protocol collection sizes: "
+                     "maybe revoking: %d, ready to migrate: %d, unknown but "
+                     "owned: %d. Total assigned: %d",
+                     rkcg->rkcg_group_id->str,
                      (int)RD_MAP_CNT(maybe_revoking),
                      (int)RD_MAP_CNT(ready_to_migrate),
                      (int)RD_MAP_CNT(unknown_but_owned), total_assigned);
@@ -3442,8 +3448,10 @@ rd_kafka_toppar_map_to_list (map_toppar_member_info_t *map) {
 static void
 rd_kafka_cgrp_handle_assignment (rd_kafka_cgrp_t *rkcg,
 				 rd_kafka_topic_partition_list_t *assignment) {
+
         if (rkcg->rkcg_assignor->rkas_supported_protocols &
             RD_KAFKA_ASSIGNOR_PROTOCOL_COOPERATIVE) {
+
                 map_toppar_member_info_t *new_assignment_set =
                         rd_kafka_toppar_list_to_map(assignment);
                 map_toppar_member_info_t *old_assignment_set =
@@ -3476,7 +3484,8 @@ rd_kafka_cgrp_handle_assignment (rd_kafka_cgrp_t *rkcg,
                 rd_kafka_topic_partition_list_destroy(revoked);
                 RD_MAP_DESTROY(revoked_set);
                 RD_MAP_DESTROY(newly_added_set);
-                RD_MAP_DESTROY(old_assignment_set);
+                if (old_assignment_set)
+                        RD_MAP_DESTROY(old_assignment_set);
                 RD_MAP_DESTROY(new_assignment_set);
         } else
                 rd_kafka_rebalance_op(rkcg,

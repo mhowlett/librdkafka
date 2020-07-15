@@ -323,7 +323,7 @@ rd_kafka_assignor_run (rd_kafka_cgrp_t *rkcg,
             (RD_KAFKA_DBG_CGRP|RD_KAFKA_DBG_ASSIGNOR)) {
                 rd_kafka_dbg(rkcg->rkcg_rk, CGRP|RD_KAFKA_DBG_ASSIGNOR,
                              "ASSIGN",
-                             "Group \"%s\" running %s assignment for "
+                             "Group \"%s\" running %s assignor for "
                              "%d member(s) and "
                              "%d eligible subscribed topic(s):",
                              rkcg->rkcg_group_id->str,

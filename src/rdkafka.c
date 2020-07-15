@@ -3428,9 +3428,9 @@ rd_kafka_handle_rebalance_op(rd_kafka_t *rk, rd_kafka_op_t *rko) {
                         : rko->rko_u.rebalance.revoke_partitions;
 
         /* If EVENT_REBALANCE is enabled but rebalance_cb isn't
-                * we need to perform a dummy assign for the application.
-                * This might happen during termination with
-                * consumer_close() */
+         * we need to perform a dummy assign for the application.
+         * This might happen during termination with
+         * consumer_close() */
         if (!rk->rk_conf.rebalance_cb) {
                 rd_kafka_dbg(rk, CGRP, "UNASSIGN",
                              "Forcing unassign of all partition(s)");
@@ -3446,12 +3446,12 @@ rd_kafka_handle_rebalance_op(rd_kafka_t *rk, rd_kafka_op_t *rko) {
                         rk->rk_conf.opaque);
 
                 /* If this is a revoke, immediately trigger the
-                        * follow up assign (the protocol dictates this
-                        * happens even if there are no newly assigned
-                        * partitions).
-                        */
+                 * follow up assign (the protocol dictates this
+                 * happens even if there are no newly assigned
+                 * partitions).
+                 */
                 if (rko->rko_err ==
-                        RD_KAFKA_RESP_ERR__REVOKE_PARTITIONS) {
+                    RD_KAFKA_RESP_ERR__REVOKE_PARTITIONS) {
                         rd_kafka_rebalance_op_cooperative(
                                 rk->rk_cgrp,
                                 RD_KAFKA_RESP_ERR__ASSIGN_PARTITIONS,
@@ -3461,13 +3461,12 @@ rd_kafka_handle_rebalance_op(rd_kafka_t *rk, rd_kafka_op_t *rko) {
                 }
 
                 /* If there were any revoked partitions, rejoin the
-                        * group following this assign so the coordinator can
-                        * assign them to other consumers.
-                        */
-                else if (rko->rko_err ==
-                        RD_KAFKA_RESP_ERR__ASSIGN_PARTITIONS &&
-                        rko->rko_u.rebalance.revoke_partitions->cnt > 0) {
-                        rd_kafka_rejoin(rk);
+                 * group following this assign so the coordinator can
+                 * assign them to other consumers.
+                 */
+                else if (rko->rko_err == RD_KAFKA_RESP_ERR__ASSIGN_PARTITIONS) {
+                        if (rko->rko_u.rebalance.revoke_partitions->cnt > 0)
+                                rd_kafka_rejoin(rk);
                 }
 
                 else
