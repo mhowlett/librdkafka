@@ -865,12 +865,16 @@ rd_kafka_rebalance_op (rd_kafka_cgrp_t *rkcg,
         // TODO: Fix this. allow for multiple protocols.
         rko->rko_u.rebalance.protocol =
                 rkcg->rkcg_assignor->rkas_supported_protocols;
-        if (err == RD_KAFKA_RESP_ERR__ASSIGN_PARTITIONS)
+        if (err == RD_KAFKA_RESP_ERR__ASSIGN_PARTITIONS) {
                 rko->rko_u.rebalance.assign_partitions =
                         rd_kafka_topic_partition_list_copy(assignment);
-        else
+                rko->rko_u.rebalance.revoke_partitions = NULL;
+        }
+        else {
                 rko->rko_u.rebalance.revoke_partitions =
                         rd_kafka_topic_partition_list_copy(assignment);
+                rko->rko_u.rebalance.assign_partitions = NULL;
+        }
 
 	if (rd_kafka_q_enq(rkcg->rkcg_q, rko) == 0) {
 		/* Queue disabled, handle assignment here. */
@@ -3541,13 +3545,16 @@ static void rd_kafka_cgrp_rebalance (rd_kafka_cgrp_t *rkcg,
 
         rd_atomic32_set(&rkcg->rkcg_assignment_lost, assignment_lost);
 
-        /* EAGER protocol: Remove assignment (async), if any. If there is
-         * already an unassign in progress we don't need to bother. */
         if (rkcg->rkcg_assignor &&
-            !(rkcg->rkcg_assignor->rkas_supported_protocols
+            !(rkcg->rkcg_assignor->rkas_supported_protocols            // TODO: Support rolling upgrade from EAGER -> COOPERATIVE.
               & RD_KAFKA_ASSIGNOR_PROTOCOL_COOPERATIVE) &&
             !RD_KAFKA_CGRP_WAIT_REBALANCE_CB(rkcg) &&
             !(rkcg->rkcg_flags & RD_KAFKA_CGRP_F_WAIT_UNASSIGN)) {
+
+                /** EAGER protocol: Remove assignment, if any. If there is
+                 *  already an unassign in progress we don't need to bother.
+                 */
+
                 rkcg->rkcg_flags |= RD_KAFKA_CGRP_F_WAIT_UNASSIGN;
 
                 rd_kafka_rebalance_op(
@@ -3556,10 +3563,24 @@ static void rd_kafka_cgrp_rebalance (rd_kafka_cgrp_t *rkcg,
                         rkcg->rkcg_assignment, reason);
         }
 
-        /* COOPERATIVE protocol: partition unassignment happens following a
-         * SyncGroup response, not here.
-         */
         else {
+                /** COOPERATIVE protocol: During normal operation, partition
+                 *  revoke is not triggered immediately (it happens following
+                 *  a SyncGroup response). However it is triggered
+                 *  immediately on LeaveGroup.
+                 *
+                 *  TODO: check everything is right here.
+                 */
+
+                if (unlikely(rkcg->rkcg_state == RD_KAFKA_CGRP_STATE_TERM ||
+		     (rkcg->rkcg_flags & RD_KAFKA_CGRP_F_TERMINATE))) {
+                        rd_kafka_rebalance_op(
+                                rkcg,
+                                RD_KAFKA_RESP_ERR__REVOKE_PARTITIONS,
+                                rkcg->rkcg_assignment, reason);
+                        return;
+                }
+
                 if (rkcg->rkcg_assignor && rkcg->rkcg_assignment)
                         rd_kafka_dbg(rkcg->rkcg_rk, CONSUMER|RD_KAFKA_DBG_CGRP,
                                      "REBALANCE", "Group \"%.*s\": "

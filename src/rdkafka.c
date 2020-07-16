@@ -3445,26 +3445,38 @@ rd_kafka_handle_rebalance_op(rd_kafka_t *rk, rd_kafka_op_t *rko) {
                         partitions,
                         rk->rk_conf.opaque);
 
-                /* If this is a revoke, immediately trigger the
-                 * follow up assign (the protocol dictates this
-                 * happens even if there are no newly assigned
-                 * partitions).
-                 */
                 if (rko->rko_err ==
                     RD_KAFKA_RESP_ERR__REVOKE_PARTITIONS) {
-                        rd_kafka_rebalance_op_cooperative(
-                                rk->rk_cgrp,
-                                RD_KAFKA_RESP_ERR__ASSIGN_PARTITIONS,
-                                rko->rko_u.rebalance.assign_partitions,
-                                rko->rko_u.rebalance.revoke_partitions,
-                                "cooperative assign after revoke");
+
+                        /* REVOKE case: During a normal rebalance, immediately
+                        *  trigger the assign that follows this revoke. The
+                        *  protocol dictates this should occur even if the new
+                        *  assignment set is empty.
+                        *
+                        *  In the case the consumer is closing, assign_partitions
+                        *  is set to NULL. In that case, there is no follow on
+                        *  assign.
+                        *
+                        *  TODO: consider lost case. I think this is not
+                        *  correct yet.
+                        */
+
+                        if (rko->rko_u.rebalance.assign_partitions)
+                                rd_kafka_rebalance_op_cooperative(
+                                        rk->rk_cgrp,
+                                        RD_KAFKA_RESP_ERR__ASSIGN_PARTITIONS,
+                                        rko->rko_u.rebalance.assign_partitions,
+                                        rko->rko_u.rebalance.revoke_partitions,
+                                        "cooperative assign after revoke");
                 }
 
-                /* If there were any revoked partitions, rejoin the
-                 * group following this assign so the coordinator can
-                 * assign them to other consumers.
-                 */
                 else if (rko->rko_err == RD_KAFKA_RESP_ERR__ASSIGN_PARTITIONS) {
+
+                        /* ASSIGN case: If any partitions have been revoked,
+                         * rejoin the group so the coordinator can assign them
+                         * to other consumers.
+                         */
+
                         if (rko->rko_u.rebalance.revoke_partitions->cnt > 0)
                                 rd_kafka_rejoin(rk);
                 }
