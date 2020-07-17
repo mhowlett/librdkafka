@@ -101,6 +101,7 @@ typedef enum {
         RD_KAFKA_OP_TERMINATE,       /* For generic use */
         RD_KAFKA_OP_COORD_QUERY,     /* Query for coordinator */
         RD_KAFKA_OP_SUBSCRIBE,       /* New subscription */
+        RD_KAFKA_OP_REJOIN,          /* Rejoin group with current assignment */
         RD_KAFKA_OP_ASSIGN,          /* New assignment */
         RD_KAFKA_OP_GET_SUBSCRIPTION,/* Get current subscription.
 				      * Reuses u.subscribe */
@@ -289,9 +290,11 @@ struct rd_kafka_op_s {
                         rd_kafka_assign_method_t method;
 		} assign; /* also used for GET_ASSIGNMENT */
 
-		struct {
-			rd_kafka_topic_partition_list_t *partitions;
-		} rebalance;
+                struct {
+                        rd_kafka_topic_partition_list_t *revoke_partitions;
+                        rd_kafka_topic_partition_list_t *assign_partitions;
+                        int protocol;
+                } rebalance;
 
 		struct {
 			char *str;

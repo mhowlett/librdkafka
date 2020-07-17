@@ -68,6 +68,8 @@
 #endif
 
 
+rd_kafka_resp_err_t
+rd_kafka_rejoin (rd_kafka_t *rk);
 
 static once_flag rd_kafka_global_init_once = ONCE_FLAG_INIT;
 static once_flag rd_kafka_global_srand_once = ONCE_FLAG_INIT;
@@ -3418,6 +3420,85 @@ rd_kafka_offsets_for_times (rd_kafka_t *rk,
 }
 
 
+static void
+rd_kafka_handle_rebalance_op(rd_kafka_t *rk, rd_kafka_op_t *rko) {
+        rd_kafka_topic_partition_list_t *partitions =
+                rko->rko_err == RD_KAFKA_RESP_ERR__ASSIGN_PARTITIONS
+                        ? rko->rko_u.rebalance.assign_partitions
+                        : rko->rko_u.rebalance.revoke_partitions;
+
+        /* If EVENT_REBALANCE is enabled but rebalance_cb isn't
+         * we need to perform a dummy assign for the application.
+         * This might happen during termination with
+         * consumer_close() */
+        if (!rk->rk_conf.rebalance_cb) {
+                rd_kafka_dbg(rk, CGRP, "UNASSIGN",
+                             "Forcing unassign of all partition(s)");
+                rd_kafka_assign(rk, NULL);
+        }
+
+        else if (rko->rko_u.rebalance.protocol ==
+                 RD_KAFKA_ASSIGNOR_PROTOCOL_COOPERATIVE) {
+
+                rk->rk_conf.rebalance_cb(
+                        rk, rko->rko_err,
+                        partitions,
+                        rk->rk_conf.opaque);
+
+                if (rko->rko_err ==
+                    RD_KAFKA_RESP_ERR__REVOKE_PARTITIONS) {
+
+                        /* REVOKE case: During a normal rebalance, immediately
+                        *  trigger the assign that follows this revoke. The
+                        *  protocol dictates this should occur even if the new
+                        *  assignment set is empty.
+                        *
+                        *  In the case the consumer is closing, assign_partitions
+                        *  is set to NULL. In that case, there is no follow on
+                        *  assign.
+                        *
+                        *  TODO: consider lost case. I think this is not
+                        *  correct yet.
+                        */
+
+                        if (rko->rko_u.rebalance.assign_partitions)
+                                rd_kafka_rebalance_op_cooperative(
+                                        rk->rk_cgrp,
+                                        RD_KAFKA_RESP_ERR__ASSIGN_PARTITIONS,
+                                        rko->rko_u.rebalance.assign_partitions,
+                                        rko->rko_u.rebalance.revoke_partitions,
+                                        "cooperative assign after revoke");
+                }
+
+                else if (rko->rko_err == RD_KAFKA_RESP_ERR__ASSIGN_PARTITIONS) {
+
+                        /* ASSIGN case: If any partitions have been revoked,
+                         * rejoin the group so the coordinator can assign them
+                         * to other consumers.
+                         */
+
+                        if (rko->rko_u.rebalance.revoke_partitions->cnt > 0)
+                                rd_kafka_rejoin(rk);
+                }
+
+                else
+                        RD_NOTREACHED();
+        }
+
+        else if (rko->rko_u.rebalance.protocol ==
+                 RD_KAFKA_ASSIGNOR_PROTOCOL_EAGER) {
+
+                rk->rk_conf.rebalance_cb(
+                        rk, rko->rko_err,
+                        partitions,
+                        rk->rk_conf.opaque);
+        }
+
+        else
+                RD_NOTREACHED();
+}
+
+
 /**
  * @brief rd_kafka_poll() (and similar) op callback handler.
  *        Will either call registered callback depending on cb_type and op type
@@ -3458,21 +3539,7 @@ rd_kafka_poll_cb (rd_kafka_t *rk, rd_kafka_q_t *rkq, rd_kafka_op_t *rko,
                 break;
 
         case RD_KAFKA_OP_REBALANCE:
-                /* If EVENT_REBALANCE is enabled but rebalance_cb isn't
-                 * we need to perform a dummy assign for the application.
-                 * This might happen during termination with consumer_close() */
-                if (rk->rk_conf.rebalance_cb)
-                        rk->rk_conf.rebalance_cb(
-                                rk, rko->rko_err,
-                                rko->rko_u.rebalance.partitions,
-                                rk->rk_conf.opaque);
-                else {
-                        rd_kafka_dbg(rk, CGRP, "UNASSIGN",
-                                     "Forcing unassign of %d partition(s)",
-                                     rko->rko_u.rebalance.partitions ?
-                                     rko->rko_u.rebalance.partitions->cnt : 0);
-                        rd_kafka_assign(rk, NULL);
-                }
+                rd_kafka_handle_rebalance_op(rk, rko);
                 break;
 
         case RD_KAFKA_OP_OFFSET_COMMIT | RD_KAFKA_OP_REPLY:
