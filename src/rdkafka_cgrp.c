@@ -71,6 +71,7 @@ static RD_INLINE int rd_kafka_cgrp_try_terminate (rd_kafka_cgrp_t *rkcg);
 
 static void rd_kafka_cgrp_rebalance (rd_kafka_cgrp_t *rkcg,
                                      rd_bool_t assignment_lost,
+                                     rd_bool_t initiating,
                                      const char *reason);
 
 static void
@@ -727,6 +728,7 @@ static void rd_kafka_cgrp_leave (rd_kafka_cgrp_t *rkcg) {
  *        \p assign_partitions and \p revoke_partitions are copied. This
  *        delegates the responsibility of incremental_assign and
  *        incremental_unassign to the application.
+ *
  * @returns 1 if a rebalance op was enqueued, else 0.
  *          0 if there was no rebalance_cb in which case
  *            rd_kafka_cgrp_incremental_unassign and
@@ -754,6 +756,9 @@ rd_kafka_rebalance_op_cooperative (rd_kafka_cgrp_t *rkcg,
                 if (err == RD_KAFKA_RESP_ERR__ASSIGN_PARTITIONS) {
                         rd_kafka_cgrp_incremental_assign(rkcg,
                                                          assign_partitions);
+
+                        /* if there were any revoked partitions, then re-join
+                         * the group to trigger a follow up rebalance */
                         if (revoke_partitions->cnt > 0) {
                                 rd_kafka_cgrp_set_join_state(
                                         rkcg,
@@ -762,7 +767,9 @@ rd_kafka_rebalance_op_cooperative (rd_kafka_cgrp_t *rkcg,
                 } else {
                         rd_kafka_cgrp_incremental_unassign(rkcg,
                                                            revoke_partitions);
-                        // TODO: need to check this is ok.
+
+                        // TODO: I think this is not right, because I think we need to wait
+                        //       for the unassign to finish first.
                         rd_kafka_rebalance_op_cooperative(
                                 rkcg, RD_KAFKA_RESP_ERR__ASSIGN_PARTITIONS,
                                 assign_partitions, revoke_partitions, reason);
@@ -1172,7 +1179,7 @@ rd_kafka_cgrp_assignor_run (rd_kafka_cgrp_t *rkcg,
                 rd_kafka_dbg(rkcg->rkcg_rk, CGRP|RD_KAFKA_DBG_CONSUMER, "CGRP",
                      "Group \"%s\": COOPERATIVE protocol collection sizes: "
                      "maybe revoking: %d, ready to migrate: %d, unknown but "
-                     "owned: %d. Total assigned: %d",
+                     "owned: %d (total assigned to consumers: %d)",
                      rkcg->rkcg_group_id->str,
                      (int)RD_MAP_CNT(maybe_revoking),
                      (int)RD_MAP_CNT(ready_to_migrate),
@@ -1434,7 +1441,7 @@ static void rd_kafka_cgrp_handle_JoinGroup (rd_kafka_t *rk,
                 rd_list_t topics;
                 rd_kafka_op_t *rko;
                 rd_kafka_dbg(rkb->rkb_rk, CGRP, "JOINGROUP",
-                             "Elected leader for group \"%s\" "
+                             "I am elected leader for group \"%s\" "
                              "with %"PRId32" member(s)",
                              rkcg->rkcg_group_id->str, member_cnt);
 
@@ -1800,17 +1807,18 @@ static void rd_kafka_cgrp_rejoin (rd_kafka_cgrp_t *rkcg) {
         /*
          * Clean-up group leader duties, if any.
          */
-        rd_kafka_cgrp_group_leader_reset(rkcg, "Group rejoin");
+        rd_kafka_cgrp_group_leader_reset(rkcg, "group rejoin");
 
         rd_kafka_dbg(rkcg->rkcg_rk, CGRP, "REJOIN",
-                     "Group \"%.*s\" rejoining in join-state %s "
+                     "Group \"%.*s\" (re)joining in join-state %s "
                      "with%s an assignment",
                      RD_KAFKAP_STR_PR(rkcg->rkcg_group_id),
                      rd_kafka_cgrp_join_state_names[rkcg->rkcg_join_state],
                      rkcg->rkcg_assignment ? "" : "out");
 
         rd_kafka_cgrp_rebalance(rkcg, rd_false/*assignment not lost*/,
-                                "group rejoin");
+                                rd_true/*this client is initiating*/,
+                                "group (re)join");
 }
 
 /**
@@ -1897,6 +1905,7 @@ void rd_kafka_cgrp_handle_Heartbeat (rd_kafka_t *rk,
         int actions = 0;
         const char *rebalance_reason = NULL;
         rd_bool_t assignment_lost = rd_false;
+        rd_bool_t initiating_rebalance = rd_false;
 
         rd_dassert(rkcg->rkcg_flags & RD_KAFKA_CGRP_F_HEARTBEAT_IN_TRANSIT);
         rkcg->rkcg_flags &= ~RD_KAFKA_CGRP_F_HEARTBEAT_IN_TRANSIT;
@@ -1916,7 +1925,7 @@ void rd_kafka_cgrp_handle_Heartbeat (rd_kafka_t *rk,
         }
 
         rd_kafka_cgrp_update_session_timeout(
-                rkcg, rd_false/*dont update if session has expired*/);
+                rkcg, rd_false/*don't update if session has expired*/);
 
         return;
 
@@ -1969,18 +1978,21 @@ void rd_kafka_cgrp_handle_Heartbeat (rd_kafka_t *rk,
                 if (rkcg->rkcg_join_state ==
                     RD_KAFKA_CGRP_JOIN_STATE_WAIT_REVOKE_REBALANCE_CB)
                         return;
-                rebalance_reason = "group is rebalancing";
+                rebalance_reason = "rebalance in progress";
+                initiating_rebalance = rd_false;
                 break;
 
         case RD_KAFKA_RESP_ERR_UNKNOWN_MEMBER_ID:
                 rd_kafka_cgrp_set_member_id(rkcg, "");
                 rebalance_reason = "resetting member-id";
                 assignment_lost = rd_true;
+                initiating_rebalance = rd_true;
                 break;
 
         case RD_KAFKA_RESP_ERR_ILLEGAL_GENERATION:
-                rebalance_reason = "group is rebalancing";
+                rebalance_reason = "illegal generation";
                 assignment_lost = rd_true;
+                initiating_rebalance = rd_true;
                 break;
 
         case RD_KAFKA_RESP_ERR_FENCED_INSTANCE_ID:
@@ -1989,6 +2001,7 @@ void rd_kafka_cgrp_handle_Heartbeat (rd_kafka_t *rk,
                                          rd_kafka_err2str(err));
                 rebalance_reason = "consumer fenced by newer instance";
                 assignment_lost = rd_true;
+                initiating_rebalance = rd_true;
                 break;
 
         default:
@@ -2011,7 +2024,9 @@ void rd_kafka_cgrp_handle_Heartbeat (rd_kafka_t *rk,
         }
 
         if (rebalance_reason)
-                rd_kafka_cgrp_rebalance(rkcg, assignment_lost, rebalance_reason);
+                rd_kafka_cgrp_rebalance(rkcg, assignment_lost,
+                                        initiating_rebalance,
+                                        rebalance_reason);
 }
 
 
@@ -3528,12 +3543,14 @@ static void rd_kafka_cgrp_group_leader_reset (rd_kafka_cgrp_t *rkcg,
  */
 static void rd_kafka_cgrp_rebalance (rd_kafka_cgrp_t *rkcg,
                                      rd_bool_t assignment_lost,
+                                     rd_bool_t initiating,
                                      const char *reason) {
 
         rd_kafka_dbg(rkcg->rkcg_rk, CONSUMER|RD_KAFKA_DBG_CGRP, "REBALANCE",
-                     "Group \"%.*s\" is rebalancing in "
-                     "state %s (join-state %s) %s assignment%s: %s",
+                     "Group \"%.*s\"%s in state %s (join-state %s) "
+                     "%s assignment%s: %s",
                      RD_KAFKAP_STR_PR(rkcg->rkcg_group_id),
+                     initiating ? " initiating rebalance" : " is rebalancing",
                      rd_kafka_cgrp_state_names[rkcg->rkcg_state],
                      rd_kafka_cgrp_join_state_names[rkcg->rkcg_join_state],
                      rkcg->rkcg_assignment ? "with" : "without",
@@ -3584,7 +3601,7 @@ static void rd_kafka_cgrp_rebalance (rd_kafka_cgrp_t *rkcg,
                 if (rkcg->rkcg_assignor && rkcg->rkcg_assignment)
                         rd_kafka_dbg(rkcg->rkcg_rk, CONSUMER|RD_KAFKA_DBG_CGRP,
                                      "REBALANCE", "Group \"%.*s\": "
-                                     "COOPERATIVE protocol: rejoining group "
+                                     "COOPERATIVE protocol: (re)joining group "
                                      "with %d owned partitions.",
                                 RD_KAFKAP_STR_PR(rkcg->rkcg_group_id),
                                 rkcg->rkcg_assignment->cnt);
@@ -3649,7 +3666,9 @@ rd_kafka_cgrp_max_poll_interval_check_tmr_cb (rd_kafka_timers_t *rkts,
         rd_kafka_cgrp_set_member_id(rkcg, "");
 
         /* Trigger rebalance */
-        rd_kafka_cgrp_rebalance(rkcg, rd_true/*assignment lost*/,
+        rd_kafka_cgrp_rebalance(rkcg,
+                                rd_true/*assignment lost*/,
+                                rd_true/*this client is initiating*/,
                                 "max.poll.interval.ms exceeded");
 }
 
@@ -3689,7 +3708,9 @@ rd_kafka_cgrp_unsubscribe (rd_kafka_cgrp_t *rkcg, int leave_group) {
 	if (leave_group)
 		rkcg->rkcg_flags |= RD_KAFKA_CGRP_F_LEAVE_ON_UNASSIGN;
 
-        rd_kafka_cgrp_rebalance(rkcg, rd_false/*assignment not lost*/,
+        rd_kafka_cgrp_rebalance(rkcg,
+                                rd_false/*assignment not lost*/,
+                                rd_true/*this client is initiating*/,
                                 "unsubscribe");
 
         rkcg->rkcg_flags &= ~(RD_KAFKA_CGRP_F_SUBSCRIPTION |
@@ -4190,7 +4211,10 @@ rd_kafka_cgrp_session_timeout_check (rd_kafka_cgrp_t *rkcg, rd_ts_t now) {
         rd_kafka_cgrp_set_member_id(rkcg, "");
 
         /* Revoke and rebalance */
-        rd_kafka_cgrp_rebalance(rkcg, rd_true/*assignment lost*/, buf);
+        rd_kafka_cgrp_rebalance(rkcg,
+                                rd_true/*assignment lost*/,
+                                rd_true/*this client is initiating*/,
+                                buf);
 
         return rd_true;
 }
