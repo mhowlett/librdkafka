@@ -3155,6 +3155,8 @@ static void rd_kafka_cgrp_unassign_done (rd_kafka_cgrp_t *rkcg,
                 return;
         }
 
+        // TODO: something else in the incremental case I think.
+
         if (rkcg->rkcg_assignment) {
 		rd_kafka_cgrp_set_join_state(rkcg,
 					     RD_KAFKA_CGRP_JOIN_STATE_ASSIGNED);

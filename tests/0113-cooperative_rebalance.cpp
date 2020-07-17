@@ -39,9 +39,9 @@ using namespace std;
 
 /** Incremental assign, then assign(NULL).
  */
-static void assign_test_1(RdKafka::KafkaConsumer *consumer,
-                                 std::vector<RdKafka::TopicPartition *> toppars1,
-                                 std::vector<RdKafka::TopicPartition *> toppars2) {
+static void assign_test_1 (RdKafka::KafkaConsumer *consumer,
+                           std::vector<RdKafka::TopicPartition *> toppars1,
+                           std::vector<RdKafka::TopicPartition *> toppars2) {
   RdKafka::ErrorCode err;
   RdKafka::Error *error;
   std::vector<RdKafka::TopicPartition *> assignment;
@@ -69,9 +69,9 @@ static void assign_test_1(RdKafka::KafkaConsumer *consumer,
 
 /** Assign, then incremental unassign.
  */
-static void assign_test_2(RdKafka::KafkaConsumer *consumer,
-                                 std::vector<RdKafka::TopicPartition *> toppars1,
-                                 std::vector<RdKafka::TopicPartition *> toppars2) {
+static void assign_test_2 (RdKafka::KafkaConsumer *consumer,
+                           std::vector<RdKafka::TopicPartition *> toppars1,
+                           std::vector<RdKafka::TopicPartition *> toppars2) {
   RdKafka::ErrorCode err;
   RdKafka::Error *error;
   std::vector<RdKafka::TopicPartition *> assignment;
@@ -98,9 +98,9 @@ static void assign_test_2(RdKafka::KafkaConsumer *consumer,
 
 /** Incremental assign, then incremental unassign.
  */
-static void assign_test_3(RdKafka::KafkaConsumer *consumer,
-                                 std::vector<RdKafka::TopicPartition *> toppars1,
-                                 std::vector<RdKafka::TopicPartition *> toppars2) {
+static void assign_test_3 (RdKafka::KafkaConsumer *consumer,
+                           std::vector<RdKafka::TopicPartition *> toppars1,
+                           std::vector<RdKafka::TopicPartition *> toppars2) {
   RdKafka::ErrorCode err;
   RdKafka::Error *error;
   std::vector<RdKafka::TopicPartition *> assignment;
@@ -130,9 +130,9 @@ static void assign_test_3(RdKafka::KafkaConsumer *consumer,
 
 /** Multi-topic incremental assign and unassign + message consumption.
  */
-static void assign_test_4(RdKafka::KafkaConsumer *consumer,
-                                 std::vector<RdKafka::TopicPartition *> toppars1,
-                                 std::vector<RdKafka::TopicPartition *> toppars2) {
+static void assign_test_4 (RdKafka::KafkaConsumer *consumer,
+                           std::vector<RdKafka::TopicPartition *> toppars1,
+                           std::vector<RdKafka::TopicPartition *> toppars2) {
   std::vector<RdKafka::TopicPartition *> assignment;
 
   Test::Say("Multi-topic incremental assign and unassign + message consumption\n");
@@ -196,9 +196,9 @@ static void assign_test_4(RdKafka::KafkaConsumer *consumer,
 
 /** Incremental assign and unassign of empty collection.
  */
-static void assign_test_5(RdKafka::KafkaConsumer *consumer,
-                                 std::vector<RdKafka::TopicPartition *> toppars1,
-                                 std::vector<RdKafka::TopicPartition *> toppars2) {
+static void assign_test_5 (RdKafka::KafkaConsumer *consumer,
+                           std::vector<RdKafka::TopicPartition *> toppars1,
+                           std::vector<RdKafka::TopicPartition *> toppars2) {
   RdKafka::ErrorCode err;
   RdKafka::Error *error;
   std::vector<RdKafka::TopicPartition *> assignment;
@@ -225,10 +225,10 @@ static void assign_test_5(RdKafka::KafkaConsumer *consumer,
 }
 
 
-void run_test(std::string &t1, std::string &t2,
-              void (*test)(RdKafka::KafkaConsumer *consumer,
-                           std::vector<RdKafka::TopicPartition *> toppars1,
-                            std::vector<RdKafka::TopicPartition *> toppars2)) {
+static void run_test (std::string &t1, std::string &t2,
+                      void (*test)(RdKafka::KafkaConsumer *consumer,
+                                   std::vector<RdKafka::TopicPartition *> toppars1,
+                                   std::vector<RdKafka::TopicPartition *> toppars2)) {
     std::vector<RdKafka::TopicPartition *> toppars1;
     toppars1.push_back(RdKafka::TopicPartition::create(t1, 0,
                                                        RdKafka::Topic::OFFSET_BEGINNING));
@@ -259,7 +259,7 @@ void run_test(std::string &t1, std::string &t2,
 }
 
 
-void assign_tests() {
+static void assign_tests () {
     int msgcnt = 1000;
     const int msgsize1 = 100;
     const int msgsize2 = 200;
@@ -298,7 +298,7 @@ public:
   int revoke_call_cnt;
   int partitions_assigned_net;
 
-  TestRebalanceCb() {
+  TestRebalanceCb () {
     assign_call_cnt = 0;
     revoke_call_cnt = 0;
     partitions_assigned_net = 0;
@@ -323,7 +323,7 @@ public:
 };
 
 
-void subscribe_test_with_cb() {
+static void subscribe_with_cb_test () {
   /* construct test topic (2 partitions) */
   std::string topic_name = Test::mk_topic_name("0113-cooperative_rebalance", 1);
   test_create_topic(NULL, topic_name.c_str(), 2, 1);
@@ -481,7 +481,7 @@ void subscribe_test_with_cb() {
 }
 
 
-void subscribe_test_no_cb() {
+static void subscribe_no_cb_test () {
   /* construct test topic (2 partitions) */
   std::string topic_name = Test::mk_topic_name("0113-cooperative_rebalance", 1);
   test_create_topic(NULL, topic_name.c_str(), 2, 1);
@@ -548,7 +548,7 @@ void subscribe_test_no_cb() {
     if (partitions1.size() == 1) {
       c2->assignment(partitions2);
       if (partitions2.size() == 1) {
-        Test::Say("Consumer 1 and 2 both assigned to single partition.\n");
+        Test::Say("Consumer 1 and 2 are both assigned to single partition.\n");
         done = true;
       }
       for (size_t i = 0; i<partitions2.size(); i++)
@@ -568,17 +568,64 @@ void subscribe_test_no_cb() {
   delete c2;
 }
 
+static void cooperative_close_empty_assignment_test () {
+  // NULL is used for assign in close case, test no confusion.
+}
+
+static void unsubscribe_with_cb_test () {
+}
+
+static void unsubscribe_no_cb_test () {
+}
+
+static void lost_partitions_poll_timeout_test () {
+}
+
+static void lost_partitions_session_timeout_test() {
+}
+
+static void lost_partitions_heartbeat_unknown_member_id_test () {
+}
+
+static void lost_partitions_heartbeat_illegal_generation_id_test () {
+}
+
+static void lost_partitions_heartbeat_fenced_instance_id_test () {
+}
+
+static void rolling_upgrade_test () {
+}
+
+static void stress_test () {
+  // many consumers joining / unjoining.
+}
+
+static void java_interop_test () {
+  // one java consumer, one librdkafka consumer.
+}
+
+static void fetchers_test () {
+  // generally concerned about fetchers stopping / starting as required.
+  // test this.
+}
 
 extern "C" {
   int main_0113_cooperative_rebalance (int argc, char **argv) {
-    // assign_tests();
-    // subscribe_test_with_cb();
-    subscribe_test_no_cb();
+    assign_tests();
+    subscribe_with_cb_test();
+    subscribe_no_cb_test();
+    cooperative_close_empty_assignment_test();
+    unsubscribe_with_cb_test();
+    unsubscribe_no_cb_test();
+    lost_partitions_poll_timeout_test();
+    lost_partitions_session_timeout_test();
+    lost_partitions_heartbeat_unknown_member_id_test();
+    lost_partitions_heartbeat_illegal_generation_id_test();
+    lost_partitions_heartbeat_fenced_instance_id_test();
+    rolling_upgrade_test();
+    stress_test();
+    java_interop_test();
+    fetchers_test();
     return 0;
   }
 }
-
-
-/* Additional things to test:
- *   - closing a consumer with no current assignment set.
- */

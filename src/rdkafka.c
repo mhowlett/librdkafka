@@ -3461,6 +3461,10 @@ rd_kafka_handle_rebalance_op(rd_kafka_t *rk, rd_kafka_op_t *rko) {
                         *  correct yet.
                         */
 
+                        // TODO: I think we need to wait for unassign to complete
+                        //       first? probably want code in rd_kafka_cgrp_check_unassign_done
+                        //       to spark this off?
+
                         if (rko->rko_u.rebalance.assign_partitions)
                                 rd_kafka_rebalance_op_cooperative(
                                         rk->rk_cgrp,
