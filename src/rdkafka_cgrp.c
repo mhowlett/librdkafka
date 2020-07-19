@@ -1179,11 +1179,14 @@ rd_kafka_cgrp_assignor_run (rd_kafka_cgrp_t *rkcg,
                 rd_kafka_dbg(rkcg->rkcg_rk, CGRP|RD_KAFKA_DBG_CONSUMER, "CGRP",
                      "Group \"%s\": COOPERATIVE protocol collection sizes: "
                      "maybe revoking: %d, ready to migrate: %d, unknown but "
-                     "owned: %d (total assigned to consumers: %d)",
-                     rkcg->rkcg_group_id->str,
+                     "owned: %d", rkcg->rkcg_group_id->str,
                      (int)RD_MAP_CNT(maybe_revoking),
                      (int)RD_MAP_CNT(ready_to_migrate),
-                     (int)RD_MAP_CNT(unknown_but_owned), total_assigned);
+                     (int)RD_MAP_CNT(unknown_but_owned));
+
+                rd_kafka_dbg(rkcg->rkcg_rk, CGRP|RD_KAFKA_DBG_CONSUMER, "CGRP",
+                     "Group \"%s\": Total partitions assigned to consumers: "
+                     "%d", rkcg->rkcg_group_id->str, total_assigned);
 
                 RD_MAP_DESTROY(maybe_revoking);
                 RD_MAP_DESTROY(ready_to_migrate);
