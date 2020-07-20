@@ -216,11 +216,12 @@ typedef struct rd_kafka_cgrp_s {
         /* Current assignment */
         rd_kafka_topic_partition_list_t *rkcg_assignment;
 
-        /* COOPERATIVE rebalance state */
-        /* incremental assignment. NULL if not rebalancing. */
+        /** During an incremental rebalance, the incremental assignment.
+         *  NULL if not rebalancing. */
         rd_kafka_topic_partition_list_t *rkcg_incr_assign;
-        /* if partitions were revoked (so rejoing required after assign) */
-        rd_bool_t  rkcg_revoke_partitions_cnt;
+
+        /** Whether . */
+        rd_bool_t  rkcg_rejoin;
 
         int rkcg_wait_unassign_cnt;                 /* Waiting for this number
                                                      * of partitions to be

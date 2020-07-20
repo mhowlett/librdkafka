@@ -292,8 +292,9 @@ struct rd_kafka_op_s {
 
                 struct {
                         rd_kafka_topic_partition_list_t *partitions;
-                        int protocol;
-                        rd_bool_t revoke_partitions_cnt;
+                        int protocol; /**< RD_KAFKA_ASSIGNOR_PROTOCOL_* */
+                        rd_bool_t rejoin; /**< rejoin group after ASSIGN
+                                           *   rebalance */
                 } rebalance;
 
 		struct {

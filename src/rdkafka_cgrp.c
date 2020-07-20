@@ -755,20 +755,19 @@ rd_kafka_rebalance_op_cooperative (rd_kafka_cgrp_t *rkcg,
                 if (err == RD_KAFKA_RESP_ERR__ASSIGN_PARTITIONS) {
                         rd_kafka_cgrp_incremental_assign(rkcg, partitions);
 
-                        if (rkcg->rkcg_revoke_partitions_cnt > 0) {
+                        if (rkcg->rkcg_rejoin) {
                                 /* if there were any revoked partitions, then re-join
                                  * the group to trigger a follow up rebalance */
                                 rd_kafka_dbg(rkcg->rkcg_rk,
                                              CGRP|RD_KAFKA_DBG_CONSUMER,
                                              "CGRP",
                                              "Group \"%s\": rejoining group "
-                                             "to redistribute %d previously "
+                                             "to redistribute previously "
                                              "owned partitions",
-                                             rkcg->rkcg_group_id->str,
-                                             rkcg->rkcg_revoke_partitions_cnt);
+                                             rkcg->rkcg_group_id->str);
                                 rd_kafka_cgrp_set_join_state(rkcg,
                                         RD_KAFKA_CGRP_JOIN_STATE_INIT);
-                                rkcg->rkcg_revoke_partitions_cnt = 0;
+                                rkcg->rkcg_rejoin = rd_false;
                         } else {
                                 rd_kafka_dbg(rkcg->rkcg_rk,
                                              CGRP|RD_KAFKA_DBG_CONSUMER,
@@ -811,9 +810,8 @@ rd_kafka_rebalance_op_cooperative (rd_kafka_cgrp_t *rkcg,
         rko->rko_u.rebalance.partitions =
                 rd_kafka_topic_partition_list_copy(partitions);
         if (err == RD_KAFKA_RESP_ERR__ASSIGN_PARTITIONS) {
-                rko->rko_u.rebalance.revoke_partitions_cnt =
-                        rkcg->rkcg_revoke_partitions_cnt;
-                rkcg->rkcg_revoke_partitions_cnt = 0;
+                rko->rko_u.rebalance.rejoin = rkcg->rkcg_rejoin;
+                rkcg->rkcg_rejoin = rd_false;
         }
 
         if (rd_kafka_q_enq(rkcg->rkcg_q, rko) == 0) {
@@ -887,7 +885,7 @@ rd_kafka_rebalance_op (rd_kafka_cgrp_t *rkcg,
                 rkcg->rkcg_assignor->rkas_supported_protocols;
         rko->rko_u.rebalance.partitions =
                 rd_kafka_topic_partition_list_copy(assignment);
-        rko->rko_u.rebalance.revoke_partitions_cnt = -1; /* unused for EAGER */
+        rko->rko_u.rebalance.rejoin = rd_false;
 
 	if (rd_kafka_q_enq(rkcg->rkcg_q, rko) == 0) {
 		/* Queue disabled, handle assignment here. */
@@ -3567,9 +3565,11 @@ rd_kafka_cgrp_handle_assignment (rd_kafka_cgrp_t *rkcg,
                 rd_kafka_topic_partition_list_t *revoked =
                         rd_kafka_toppar_map_to_list(revoked_set);
 
-                rkcg->rkcg_revoke_partitions_cnt = revoked->cnt;
+                rkcg->rkcg_rejoin = revoked->cnt > 0 ? rd_true : rd_false;
                 if (revoked->cnt > 0) {
-                        /* incr assign will follow on from revoke. */
+                        /* Setting rkcg_incr_assign triggers a follow on
+                         * ASSIGN_PARTITIONS rebalance op after completion
+                         * of the incremental unassign. */
                         rkcg->rkcg_incr_assign =
                                 rd_kafka_topic_partition_list_copy(newly_added);
                         rd_kafka_rebalance_op_cooperative(rkcg,

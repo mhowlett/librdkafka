@@ -3442,14 +3442,12 @@ rd_kafka_handle_rebalance_op(rd_kafka_t *rk, rd_kafka_op_t *rko) {
         if (rko->rko_u.rebalance.protocol ==
             RD_KAFKA_ASSIGNOR_PROTOCOL_COOPERATIVE &&
             rko->rko_err == RD_KAFKA_RESP_ERR__ASSIGN_PARTITIONS) {
-
-                if (rko->rko_u.rebalance.revoke_partitions_cnt > 0) {
+                if (rko->rko_u.rebalance.rejoin) {
                         rd_kafka_dbg(rk, CONSUMER, "CGRP",
                                      "Group \"%s\": rejoining group "
-                                     "to redistribute %d previously "
+                                     "to redistribute previously "
                                      "owned partitions",
-                                     rk->rk_conf.group_id_str,
-                                     rko->rko_u.rebalance.revoke_partitions_cnt);
+                                     rk->rk_conf.group_id_str);
                         rd_kafka_rejoin(rk);
                 } else
                         rd_kafka_dbg(rk, CONSUMER, "CGRP",
