@@ -291,9 +291,9 @@ struct rd_kafka_op_s {
 		} assign; /* also used for GET_ASSIGNMENT */
 
                 struct {
-                        rd_kafka_topic_partition_list_t *revoke_partitions;
-                        rd_kafka_topic_partition_list_t *assign_partitions;
+                        rd_kafka_topic_partition_list_t *partitions;
                         int protocol;
+                        rd_bool_t revoke_partitions_cnt;
                 } rebalance;
 
 		struct {

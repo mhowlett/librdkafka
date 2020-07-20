@@ -725,22 +725,19 @@ static void rd_kafka_cgrp_leave (rd_kafka_cgrp_t *rkcg) {
 
 /**
  * @brief Enqueue a rebalance op (COOPERATIVE protocol case), if configured.
- *        \p assign_partitions and \p revoke_partitions are copied. This
- *        delegates the responsibility of incremental_assign and
- *        incremental_unassign to the application.
+ *        \p partitions is copied. Responsibility of the incremental_assign
+ *        and incremental_unassign to the application.
  *
  * @returns 1 if a rebalance op was enqueued, else 0.
  *          0 if there was no rebalance_cb in which case
  *            rd_kafka_cgrp_incremental_unassign and
- *            rd_kafka_cgrp_incremental_assign are called automatically.
+ *            rd_kafka_cgrp_incremental_assign will be called automatically.
  */
 int
 rd_kafka_rebalance_op_cooperative (rd_kafka_cgrp_t *rkcg,
                                    rd_kafka_resp_err_t err,
                                    rd_kafka_topic_partition_list_t
-                                   *assign_partitions,
-                                   rd_kafka_topic_partition_list_t
-                                   *revoke_partitions,
+                                   *partitions,
                                    const char *reason) {
         rd_kafka_op_t *rko;
 
@@ -754,25 +751,38 @@ rd_kafka_rebalance_op_cooperative (rd_kafka_cgrp_t *rkcg,
             || rd_kafka_fatal_error_code(rkcg->rkcg_rk)) {
         no_delegation:
                 if (err == RD_KAFKA_RESP_ERR__ASSIGN_PARTITIONS) {
-                        rd_kafka_cgrp_incremental_assign(rkcg,
-                                                         assign_partitions);
+                        rd_kafka_cgrp_incremental_assign(rkcg, partitions);
 
+                        fprintf(stderr, "coop op ASSIGN %s %d\n", rkcg->rkcg_rk->rk_name, partitions->cnt);
                         /* if there were any revoked partitions, then re-join
                          * the group to trigger a follow up rebalance */
-                        if (revoke_partitions->cnt > 0) {
+                        if (rkcg->rkcg_revoke_partitions_cnt > 0) {
+                                rd_kafka_dbg(rkcg->rkcg_rk,
+                                             CGRP|RD_KAFKA_DBG_CONSUMER,
+                                             "CGRP",
+                                             "Group \"%s\": rejoining group "
+                                             "to redistribute %d previously "
+                                             "owned partitions",
+                                             rkcg->rkcg_group_id->str,
+                                             rkcg->rkcg_revoke_partitions_cnt);
                                 rd_kafka_cgrp_set_join_state(
                                         rkcg,
                                         RD_KAFKA_CGRP_JOIN_STATE_INIT);
+                                rkcg->rkcg_revoke_partitions_cnt = 0;
+                        } else {
+                                rd_kafka_dbg(rkcg->rkcg_rk,
+                                             CGRP|RD_KAFKA_DBG_CONSUMER,
+                                             "CGRP",
+                                             "Group \"%s\": no partitions "
+                                             "revoked, not rejoining group",
+                                             rkcg->rkcg_group_id->str);
                         }
                 } else {
-                        rd_kafka_cgrp_incremental_unassign(rkcg,
-                                                           revoke_partitions);
-
-                        // TODO: I think this is not right, because I think we need to wait
-                        //       for the unassign to finish first.
-                        rd_kafka_rebalance_op_cooperative(
-                                rkcg, RD_KAFKA_RESP_ERR__ASSIGN_PARTITIONS,
-                                assign_partitions, revoke_partitions, reason);
+                        fprintf(stderr, "coop op UNASSIGN %s %d\n", rkcg->rkcg_rk->rk_name, partitions->cnt);
+                        rd_assert(partitions->cnt > 0);
+                        /* follow on incr assign is triggered following completion
+                         * of the unassign */
+                        rd_kafka_cgrp_incremental_unassign(rkcg, partitions);
                 }
                 return 0;
         }
@@ -784,8 +794,7 @@ rd_kafka_rebalance_op_cooperative (rd_kafka_cgrp_t *rkcg,
                      rkcg->rkcg_group_id->str,
                      err == RD_KAFKA_RESP_ERR__REVOKE_PARTITIONS ?
                      "revoke":"assign",
-                     err == RD_KAFKA_RESP_ERR__REVOKE_PARTITIONS ?
-                     revoke_partitions->cnt : assign_partitions->cnt,
+                     partitions->cnt,
                      rd_kafka_q_dest_name(rkcg->rkcg_q), reason);
 
         rd_kafka_cgrp_set_join_state(
@@ -796,12 +805,15 @@ rd_kafka_rebalance_op_cooperative (rd_kafka_cgrp_t *rkcg,
 
         rko = rd_kafka_op_new(RD_KAFKA_OP_REBALANCE);
         rko->rko_err = err;
-        // TODO: Fix this. allow for multiple protocols.
-        rko->rko_u.rebalance.protocol = rkcg->rkcg_assignor->rkas_supported_protocols;
-        rko->rko_u.rebalance.assign_partitions =
-                rd_kafka_topic_partition_list_copy(assign_partitions);
-        rko->rko_u.rebalance.revoke_partitions =
-                rd_kafka_topic_partition_list_copy(revoke_partitions);
+        rko->rko_u.rebalance.protocol =
+                rkcg->rkcg_assignor->rkas_supported_protocols;          // TODO: Fix this. allow for multiple protocols.
+        rko->rko_u.rebalance.partitions =
+                rd_kafka_topic_partition_list_copy(partitions);
+        if (err == RD_KAFKA_RESP_ERR__ASSIGN_PARTITIONS) {
+                rko->rko_u.rebalance.revoke_partitions_cnt =
+                        rkcg->rkcg_revoke_partitions_cnt;
+                rkcg->rkcg_revoke_partitions_cnt = 0;
+        }
 
         if (rd_kafka_q_enq(rkcg->rkcg_q, rko) == 0) {
                 /* Queue disabled, handle assignment here. */
@@ -814,7 +826,7 @@ rd_kafka_rebalance_op_cooperative (rd_kafka_cgrp_t *rkcg,
 
 /**
  * Enqueue a rebalance op (if configured). 'partitions' is copied.
- * This delegates the responsibility of assign() and unassign() to the
+ * Responsibility of the assign() and unassign() are delegated to the
  * application.
  *
  * Returns 1 if a rebalance op was enqueued, else 0.
@@ -872,16 +884,9 @@ rd_kafka_rebalance_op (rd_kafka_cgrp_t *rkcg,
         // TODO: Fix this. allow for multiple protocols.
         rko->rko_u.rebalance.protocol =
                 rkcg->rkcg_assignor->rkas_supported_protocols;
-        if (err == RD_KAFKA_RESP_ERR__ASSIGN_PARTITIONS) {
-                rko->rko_u.rebalance.assign_partitions =
-                        rd_kafka_topic_partition_list_copy(assignment);
-                rko->rko_u.rebalance.revoke_partitions = NULL;
-        }
-        else {
-                rko->rko_u.rebalance.revoke_partitions =
-                        rd_kafka_topic_partition_list_copy(assignment);
-                rko->rko_u.rebalance.assign_partitions = NULL;
-        }
+        rko->rko_u.rebalance.partitions =
+                rd_kafka_topic_partition_list_copy(assignment);
+        rko->rko_u.rebalance.revoke_partitions_cnt = -1; /* unused for EAGER */
 
 	if (rd_kafka_q_enq(rkcg->rkcg_q, rko) == 0) {
 		/* Queue disabled, handle assignment here. */
@@ -1185,7 +1190,7 @@ rd_kafka_cgrp_assignor_run (rd_kafka_cgrp_t *rkcg,
                      (int)RD_MAP_CNT(unknown_but_owned));
 
                 rd_kafka_dbg(rkcg->rkcg_rk, CGRP|RD_KAFKA_DBG_CONSUMER, "CGRP",
-                     "Group \"%s\": Total partitions assigned to consumers: "
+                     "Group \"%s\": Partitions assigned to consumers: "
                      "%d", rkcg->rkcg_group_id->str, total_assigned);
 
                 RD_MAP_DESTROY(maybe_revoking);
@@ -1409,7 +1414,7 @@ static void rd_kafka_cgrp_handle_JoinGroup (rd_kafka_t *rk,
         rd_kafka_dbg(rkb->rkb_rk, CGRP, "JOINGROUP",
                      "JoinGroup response: GenerationId %"PRId32", "
                      "Protocol %.*s, LeaderId %.*s%s, my MemberId %.*s, "
-                     "%"PRId32" members in group: %s",
+                     "%"PRId32"x member metadata: %s",
                      GenerationId,
                      RD_KAFKAP_STR_PR(&Protocol),
                      RD_KAFKAP_STR_PR(&LeaderId),
@@ -2883,9 +2888,10 @@ rd_kafka_cgrp_incremental_assign (rd_kafka_cgrp_t *rkcg,
 
         if (partitions->cnt == 0) {
                 rd_kafka_dbg(rkcg->rkcg_rk, CGRP|RD_KAFKA_DBG_CONSUMER,
-                        "ASSIGN", "Group \"%s\": not adding empty partition "
-                        "list to existing assignment of %d partitions in join "
-                        "state %s (nothing to do)", rkcg->rkcg_group_id->str,
+                        "ASSIGN", "Group \"%s\": incremental assignment "
+                        "empty. Not adding to existing assignment of %d "
+                        "partitions in join state %s (nothing to do)",
+                        rkcg->rkcg_group_id->str,
                         !rkcg->rkcg_assignment ? 0
                         : rkcg->rkcg_assignment->cnt,
                         rd_kafka_cgrp_join_state_names[rkcg->rkcg_join_state]);
@@ -3152,27 +3158,45 @@ static void rd_kafka_cgrp_unassign_done (rd_kafka_cgrp_t *rkcg,
 		rkcg->rkcg_flags &= ~RD_KAFKA_CGRP_F_LEAVE_ON_UNASSIGN;
 	}
 
-        if (rkcg->rkcg_join_state != RD_KAFKA_CGRP_JOIN_STATE_WAIT_UNASSIGN &&
-            rkcg->rkcg_join_state != RD_KAFKA_CGRP_JOIN_STATE_WAIT_INCR_UNASSIGN) {
+
+        if (rkcg->rkcg_join_state ==
+            RD_KAFKA_CGRP_JOIN_STATE_WAIT_UNASSIGN) {
+                fprintf(stderr, "unassign done (1) %s\n", rkcg->rkcg_rk->rk_name);
+                if (rkcg->rkcg_assignment) {
+                        rd_kafka_cgrp_set_join_state(rkcg,
+                                        RD_KAFKA_CGRP_JOIN_STATE_ASSIGNED);
+                        if (RD_KAFKA_CGRP_CAN_FETCH_START(rkcg))
+                                rd_kafka_cgrp_partitions_fetch_start(
+                                        rkcg, rkcg->rkcg_assignment, 0);
+                } else {
+                        /* Skip the join backoff */
+                        rd_interval_reset(&rkcg->rkcg_join_intvl);
+
+                        rd_kafka_cgrp_set_join_state(rkcg,
+                                        RD_KAFKA_CGRP_JOIN_STATE_INIT);
+                }
+
+        } else if (rkcg->rkcg_join_state ==
+                   RD_KAFKA_CGRP_JOIN_STATE_WAIT_INCR_UNASSIGN) {
+                                fprintf(stderr, "unassign done (incr) %s\n", rkcg->rkcg_rk->rk_name);
+                /** Immediately trigger the assign that follows this revoke.
+                 *  The protocol dictates this should occur even if the new
+                 *  assignment set is empty. */
+
+                rd_assert(rkcg->rkcg_incr_assign);
+
+                rd_kafka_rebalance_op_cooperative(
+                        rkcg,
+                        RD_KAFKA_RESP_ERR__ASSIGN_PARTITIONS,
+                        rkcg->rkcg_incr_assign,
+                        "cooperative assign after revoke");
+
+                rd_kafka_topic_partition_list_destroy(rkcg->rkcg_incr_assign);
+                rkcg->rkcg_incr_assign = NULL;
+        } else {
                 rd_kafka_cgrp_try_terminate(rkcg);
                 return;
         }
-
-        // TODO: something else in the incremental case I think.
-
-        if (rkcg->rkcg_assignment) {
-		rd_kafka_cgrp_set_join_state(rkcg,
-					     RD_KAFKA_CGRP_JOIN_STATE_ASSIGNED);
-                if (RD_KAFKA_CGRP_CAN_FETCH_START(rkcg))
-                        rd_kafka_cgrp_partitions_fetch_start(
-                                rkcg, rkcg->rkcg_assignment, 0);
-	} else {
-                /* Skip the join backoff */
-                rd_interval_reset(&rkcg->rkcg_join_intvl);
-
-		rd_kafka_cgrp_set_join_state(rkcg,
-					     RD_KAFKA_CGRP_JOIN_STATE_INIT);
-	}
 
 	rd_kafka_cgrp_try_terminate(rkcg);
 }
@@ -3186,11 +3210,13 @@ static void rd_kafka_cgrp_unassign_done (rd_kafka_cgrp_t *rkcg,
 static void rd_kafka_cgrp_check_unassign_done (rd_kafka_cgrp_t *rkcg,
                                                const char *reason) {
 	if (rkcg->rkcg_wait_unassign_cnt > 0 ||
-	    rkcg->rkcg_assigned_cnt > 0 ||
+	    (rkcg->rkcg_join_state !=
+             RD_KAFKA_CGRP_JOIN_STATE_WAIT_INCR_UNASSIGN &&
+             rkcg->rkcg_assigned_cnt > 0) ||
 	    rkcg->rkcg_wait_commit_cnt > 0 ||
 	    rkcg->rkcg_flags & RD_KAFKA_CGRP_F_WAIT_UNASSIGN) {
+                fprintf(stderr, "unassign not done %s flg: %d uncnt: %d acnt: %d commitcnt: %d state: %d\n", rkcg->rkcg_rk->rk_name, rkcg->rkcg_flags, rkcg->rkcg_wait_unassign_cnt, rkcg->rkcg_assigned_cnt, rkcg->rkcg_wait_commit_cnt, rkcg->rkcg_join_state);
                 if (rkcg->rkcg_join_state != RD_KAFKA_CGRP_JOIN_STATE_STARTED)
-
                         rd_kafka_dbg(rkcg->rkcg_rk, CGRP, "UNASSIGN",
                                      "%snassign not done yet "
                                      "(%d wait_unassign, %d assigned, "
@@ -3493,15 +3519,19 @@ rd_kafka_cgrp_handle_assignment (rd_kafka_cgrp_t *rkcg,
                 rd_kafka_topic_partition_list_t *revoked =
                         rd_kafka_toppar_map_to_list(revoked_set);
 
+                rkcg->rkcg_revoke_partitions_cnt = revoked->cnt;
                 if (revoked->cnt > 0) {
+                        /* incr assign will follow on from revoke. */
+                        rkcg->rkcg_incr_assign =
+                                rd_kafka_topic_partition_list_copy(newly_added);
                         rd_kafka_rebalance_op_cooperative(rkcg,
                                 RD_KAFKA_RESP_ERR__REVOKE_PARTITIONS,
-                                newly_added, revoked, "sync group revoke");
+                                revoked, "sync group revoke");
                 }
                 else {
                         rd_kafka_rebalance_op_cooperative(rkcg,
                                 RD_KAFKA_RESP_ERR__ASSIGN_PARTITIONS,
-                                newly_added, revoked, "sync group assign");
+                                newly_added, "sync group assign");
                 }
 
                 rd_kafka_topic_partition_list_destroy(newly_added);

@@ -261,9 +261,7 @@ rd_kafka_event_topic_partition_list (rd_kafka_event_t *rkev) {
 	switch (rkev->rko_evtype)
 	{
 	case RD_KAFKA_EVENT_REBALANCE:
-		return rkev->rko_err == RD_KAFKA_RESP_ERR__ASSIGN_PARTITIONS
-			? rkev->rko_u.rebalance.assign_partitions
-			: rkev->rko_u.rebalance.revoke_partitions;
+		return rkev->rko_u.rebalance.partitions;
 	case RD_KAFKA_EVENT_OFFSET_COMMIT:
 		return rkev->rko_u.offset_commit.partitions;
 	default:

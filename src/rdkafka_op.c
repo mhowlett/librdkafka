@@ -266,9 +266,7 @@ void rd_kafka_op_destroy (rd_kafka_op_t *rko) {
 		break;
 
 	case RD_KAFKA_OP_REBALANCE:
-		RD_IF_FREE(rko->rko_u.rebalance.revoke_partitions,
-			   rd_kafka_topic_partition_list_destroy);
-		RD_IF_FREE(rko->rko_u.rebalance.assign_partitions,
+		RD_IF_FREE(rko->rko_u.rebalance.partitions,
 			   rd_kafka_topic_partition_list_destroy);
 		break;
 

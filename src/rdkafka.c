@@ -3422,84 +3422,41 @@ rd_kafka_offsets_for_times (rd_kafka_t *rk,
 
 static void
 rd_kafka_handle_rebalance_op(rd_kafka_t *rk, rd_kafka_op_t *rko) {
-        rd_kafka_topic_partition_list_t *partitions =
-                rko->rko_err == RD_KAFKA_RESP_ERR__ASSIGN_PARTITIONS
-                        ? rko->rko_u.rebalance.assign_partitions
-                        : rko->rko_u.rebalance.revoke_partitions;
 
-        /* If EVENT_REBALANCE is enabled but rebalance_cb isn't
-         * we need to perform a dummy assign for the application.
-         * This might happen during termination with
-         * consumer_close() */
         if (!rk->rk_conf.rebalance_cb) {
+                /* If EVENT_REBALANCE is enabled but rebalance_cb isn't,
+                 * we need to perform a dummy assign for the application.
+                 * This might happen during termination with
+                 * consumer_close() */
                 rd_kafka_dbg(rk, CGRP, "UNASSIGN",
                              "Forcing unassign of all partition(s)");
                 rd_kafka_assign(rk, NULL);
+                return;
         }
 
-        else if (rko->rko_u.rebalance.protocol ==
-                 RD_KAFKA_ASSIGNOR_PROTOCOL_COOPERATIVE) {
+        rk->rk_conf.rebalance_cb(
+                rk, rko->rko_err,
+                rko->rko_u.rebalance.partitions,
+                rk->rk_conf.opaque);
 
-                rk->rk_conf.rebalance_cb(
-                        rk, rko->rko_err,
-                        partitions,
-                        rk->rk_conf.opaque);
+        if (rko->rko_u.rebalance.protocol ==
+            RD_KAFKA_ASSIGNOR_PROTOCOL_COOPERATIVE &&
+            rko->rko_err == RD_KAFKA_RESP_ERR__ASSIGN_PARTITIONS) {
 
-                if (rko->rko_err ==
-                    RD_KAFKA_RESP_ERR__REVOKE_PARTITIONS) {
-
-                        /* REVOKE case: During a normal rebalance, immediately
-                        *  trigger the assign that follows this revoke. The
-                        *  protocol dictates this should occur even if the new
-                        *  assignment set is empty.
-                        *
-                        *  In the case the consumer is closing, assign_partitions
-                        *  is set to NULL. In that case, there is no follow on
-                        *  assign.
-                        *
-                        *  TODO: consider lost case. I think this is not
-                        *  correct yet.
-                        */
-
-                        // TODO: I think we need to wait for unassign to complete
-                        //       first? probably want code in rd_kafka_cgrp_check_unassign_done
-                        //       to spark this off?
-
-                        if (rko->rko_u.rebalance.assign_partitions)
-                                rd_kafka_rebalance_op_cooperative(
-                                        rk->rk_cgrp,
-                                        RD_KAFKA_RESP_ERR__ASSIGN_PARTITIONS,
-                                        rko->rko_u.rebalance.assign_partitions,
-                                        rko->rko_u.rebalance.revoke_partitions,
-                                        "cooperative assign after revoke");
-                }
-
-                else if (rko->rko_err == RD_KAFKA_RESP_ERR__ASSIGN_PARTITIONS) {
-
-                        /* ASSIGN case: If any partitions have been revoked,
-                         * rejoin the group so the coordinator can assign them
-                         * to other consumers.
-                         */
-
-                        if (rko->rko_u.rebalance.revoke_partitions->cnt > 0)
-                                rd_kafka_rejoin(rk);
-                }
-
-                else
-                        RD_NOTREACHED();
+                if (rko->rko_u.rebalance.revoke_partitions_cnt > 0) {
+                        rd_kafka_dbg(rk, CONSUMER, "CGRP",
+                                     "Group \"%s\": rejoining group "
+                                     "to redistribute %d previously "
+                                     "owned partitions",
+                                     rk->rk_conf.group_id_str,
+                                     rko->rko_u.rebalance.revoke_partitions_cnt);
+                        rd_kafka_rejoin(rk);
+                } else
+                        rd_kafka_dbg(rk, CONSUMER, "CGRP",
+                                     "Group \"%s\": no partitions "
+                                     "revoked, not rejoining group",
+                                     rk->rk_conf.group_id_str);
         }
-
-        else if (rko->rko_u.rebalance.protocol ==
-                 RD_KAFKA_ASSIGNOR_PROTOCOL_EAGER) {
-
-                rk->rk_conf.rebalance_cb(
-                        rk, rko->rko_err,
-                        partitions,
-                        rk->rk_conf.opaque);
-        }
-
-        else
-                RD_NOTREACHED();
 }
 
 
