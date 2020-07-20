@@ -611,21 +611,21 @@ static void fetchers_test () {
 
 extern "C" {
   int main_0113_cooperative_rebalance (int argc, char **argv) {
-    // assign_tests();
+    assign_tests();
     subscribe_with_cb_test();
-    // subscribe_no_cb_test();
-    // cooperative_close_empty_assignment_test();
-    // unsubscribe_with_cb_test();
-    // unsubscribe_no_cb_test();
-    // lost_partitions_poll_timeout_test();
-    // lost_partitions_session_timeout_test();
-    // lost_partitions_heartbeat_unknown_member_id_test();
-    // lost_partitions_heartbeat_illegal_generation_id_test();
-    // lost_partitions_heartbeat_fenced_instance_id_test();
-    // rolling_upgrade_test();
-    // stress_test();
-    // java_interop_test();
-    // fetchers_test();
+    subscribe_no_cb_test();
+    cooperative_close_empty_assignment_test();
+    unsubscribe_with_cb_test();
+    unsubscribe_no_cb_test();
+    lost_partitions_poll_timeout_test();
+    lost_partitions_session_timeout_test();
+    lost_partitions_heartbeat_unknown_member_id_test();
+    lost_partitions_heartbeat_illegal_generation_id_test();
+    lost_partitions_heartbeat_fenced_instance_id_test();
+    rolling_upgrade_test();
+    stress_test();
+    java_interop_test();
+    fetchers_test();
     return 0;
   }
 }
