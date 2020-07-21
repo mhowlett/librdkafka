@@ -220,7 +220,8 @@ typedef struct rd_kafka_cgrp_s {
          *  NULL if not rebalancing. */
         rd_kafka_topic_partition_list_t *rkcg_incr_assign;
 
-        /** Whether . */
+        /** Whether or not to rejoin the group after an incremental
+         *  rebalance. */
         rd_bool_t  rkcg_rejoin;
 
         int rkcg_wait_unassign_cnt;                 /* Waiting for this number

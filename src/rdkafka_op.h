@@ -293,8 +293,9 @@ struct rd_kafka_op_s {
                 struct {
                         rd_kafka_topic_partition_list_t *partitions;
                         int protocol; /**< RD_KAFKA_ASSIGNOR_PROTOCOL_* */
-                        rd_bool_t rejoin; /**< rejoin group after ASSIGN
-                                           *   rebalance */
+                        rd_bool_t rejoin; /**< Whether or not the consumer
+                                           *   should rejoin the group after
+                                           *   an incremental rebalance */
                 } rebalance;
 
 		struct {

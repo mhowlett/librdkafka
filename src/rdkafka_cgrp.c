@@ -756,8 +756,9 @@ rd_kafka_rebalance_op_cooperative (rd_kafka_cgrp_t *rkcg,
                         rd_kafka_cgrp_incremental_assign(rkcg, partitions);
 
                         if (rkcg->rkcg_rejoin) {
-                                /* if there were any revoked partitions, then re-join
-                                 * the group to trigger a follow up rebalance */
+                                /* if there were any revoked partitions, then
+                                 * re-join the group to trigger a follow up
+                                 * rebalance */
                                 rd_kafka_dbg(rkcg->rkcg_rk,
                                              CGRP|RD_KAFKA_DBG_CONSUMER,
                                              "CGRP",
@@ -780,8 +781,8 @@ rd_kafka_rebalance_op_cooperative (rd_kafka_cgrp_t *rkcg,
                         }
                 } else {
                         rd_assert(partitions->cnt > 0);
-                        /* follow on incr assign is triggered following completion
-                         * of the unassign */
+                        /* a follow-on incremental assign will be triggered
+                         * after the incremental unassign is done. */
                         rd_kafka_cgrp_incremental_unassign(rkcg, partitions);
                 }
                 return 0;
@@ -811,7 +812,8 @@ rd_kafka_rebalance_op_cooperative (rd_kafka_cgrp_t *rkcg,
                 rd_kafka_topic_partition_list_copy(partitions);
         if (err == RD_KAFKA_RESP_ERR__ASSIGN_PARTITIONS) {
                 rko->rko_u.rebalance.rejoin = rkcg->rkcg_rejoin;
-                rkcg->rkcg_rejoin = rd_false;
+                rkcg->rkcg_rejoin = rd_false; /* only relevant to incremental
+                                               * rebalance */
         }
 
         if (rd_kafka_q_enq(rkcg->rkcg_q, rko) == 0) {
@@ -1413,7 +1415,7 @@ static void rd_kafka_cgrp_handle_JoinGroup (rd_kafka_t *rk,
         rd_kafka_dbg(rkb->rkb_rk, CGRP, "JOINGROUP",
                      "JoinGroup response: GenerationId %"PRId32", "
                      "Protocol %.*s, LeaderId %.*s%s, my MemberId %.*s, "
-                     "%"PRId32"x member metadata: %s",
+                     "Member metadata ""%"PRId32": %s",
                      GenerationId,
                      RD_KAFKAP_STR_PR(&Protocol),
                      RD_KAFKAP_STR_PR(&LeaderId),
@@ -3257,7 +3259,7 @@ static void rd_kafka_cgrp_incr_unassign_done (rd_kafka_cgrp_t *rkcg,
 
 
 /**
- * Checks if the current unassignment is done and if so
+ * Checks if the current incremental unassignment is done and if so
  * calls .._done().
  * Else does nothing.
  */
@@ -3545,6 +3547,7 @@ static void
 rd_kafka_cgrp_handle_assignment (rd_kafka_cgrp_t *rkcg,
 				 rd_kafka_topic_partition_list_t *assignment) {
 
+        // TODO: Implement rolling-restart upgrade from EAGER -> COOPERATIVE.
         if (rkcg->rkcg_assignor->rkas_supported_protocols &
             RD_KAFKA_ASSIGNOR_PROTOCOL_COOPERATIVE) {
 
@@ -3567,9 +3570,9 @@ rd_kafka_cgrp_handle_assignment (rd_kafka_cgrp_t *rkcg,
 
                 rkcg->rkcg_rejoin = revoked->cnt > 0 ? rd_true : rd_false;
                 if (revoked->cnt > 0) {
-                        /* Setting rkcg_incr_assign triggers a follow on
-                         * ASSIGN_PARTITIONS rebalance op after completion
-                         * of the incremental unassign. */
+                        /* Setting rkcg_incr_assign will trigger a follow on
+                         * incremental ASSIGN rebalance op after completion
+                         * of the incremental unassign op. */
                         rkcg->rkcg_incr_assign =
                                 rd_kafka_topic_partition_list_copy(newly_added);
                         rd_kafka_rebalance_op_cooperative(rkcg,
@@ -3664,16 +3667,12 @@ static void rd_kafka_cgrp_rebalance (rd_kafka_cgrp_t *rkcg,
         }
 
         else {
-                /** COOPERATIVE protocol: During normal operation, partition
-                 *  revoke is not triggered immediately (it happens following
-                 *  a SyncGroup response). However it is triggered
-                 *  immediately on LeaveGroup.
-                 *
-                 *  TODO: check everything is right here.
-                 */
-
                 if (unlikely(rkcg->rkcg_state == RD_KAFKA_CGRP_STATE_TERM ||
 		     (rkcg->rkcg_flags & RD_KAFKA_CGRP_F_TERMINATE))) {
+                        /** COOPERATIVE protocol: During normal operation,
+                         *  partition revoke is not triggered immediately (it
+                         *  happens following a SyncGroup response). However
+                         * it is triggered immediately on LeaveGroup. */
                         rd_kafka_rebalance_op(
                                 rkcg,
                                 RD_KAFKA_RESP_ERR__REVOKE_PARTITIONS,
