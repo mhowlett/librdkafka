@@ -117,7 +117,7 @@ rd_kafka_assign0 (rd_kafka_t *rk,
         rko->rko_u.assign.method = assign_method;
 
         if (partitions)
-	        rko->rko_u.assign.partitions =
+                rko->rko_u.assign.partitions =
                         rd_kafka_topic_partition_list_copy(partitions);
 
         return rd_kafka_op_error_destroy(
@@ -178,30 +178,31 @@ rd_kafka_assignment_lost (rd_kafka_t *rk) {
         if (!(rkcg = rd_kafka_cgrp_get(rk)))
                 return 0;
 
-        return rd_atomic32_get(&rkcg->rkcg_assignment_lost) ? 1 : 0;
+        return rd_kafka_assignment_is_lost(rkcg) == rd_true;
 }
 
 
-rd_kafka_rebalance_protocol_t
+const char *
 rd_kafka_rebalance_protocol (rd_kafka_t *rk) {
         rd_kafka_op_t *rko;
         rd_kafka_cgrp_t *rkcg;
-        rd_kafka_rebalance_protocol_t result;
+        const char *result;
 
         if (!(rkcg = rd_kafka_cgrp_get(rk)))
-                return RD_KAFKA_REBALANCE_PROTOCOL_NONE;
+                return NULL;
 
         rko = rd_kafka_op_req2(rkcg->rkcg_ops,
                                RD_KAFKA_OP_GET_REBALANCE_PROTOCOL);
 
         if (!rko)
-                return RD_KAFKA_REBALANCE_PROTOCOL_NONE;
+                return NULL;
         else if (rko->rko_err) {
                 rd_kafka_op_destroy(rko);
-                return RD_KAFKA_REBALANCE_PROTOCOL_NONE;
+                return NULL;
         }
 
-        result = rko->rko_u.rebalance_protocol.protocol;
+        result = rko->rko_u.rebalance_protocol.str;
+
         rd_kafka_op_destroy(rko);
 
         return result;
