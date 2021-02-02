@@ -111,9 +111,14 @@ void rd_kafka_txn_add_partition (rd_kafka_toppar_t *rktp) {
 
         rktp->rktp_flags |= RD_KAFKA_TOPPAR_F_PEND_TXN;
 
-        rd_kafka_toppar_unlock(rktp);
-
         rk = rktp->rktp_rkt->rkt_rk;
+
+        rd_kafka_dbg(rk, EOS, "MH",
+                        "marking rktp pend_txn %.*s [%"PRId32"]",
+                        RD_KAFKAP_STR_PR(rktp->rktp_rkt->rkt_topic),
+                        rktp->rktp_partition);
+
+        rd_kafka_toppar_unlock(rktp);
 
         mtx_lock(&rk->rk_eos.txn_pending_lock);
         schedule = TAILQ_EMPTY(&rk->rk_eos.txn_pending_rktps);
@@ -127,9 +132,15 @@ void rd_kafka_txn_add_partition (rd_kafka_toppar_t *rktp) {
         mtx_unlock(&rk->rk_eos.txn_pending_lock);
 
         /* Schedule registration of partitions by the rdkafka main thread */
-        if (unlikely(schedule))
+        if (unlikely(schedule)) {
+                rd_kafka_dbg(rk, EOS, "MH",
+                             "scheduling register partitions");
                 rd_kafka_txn_schedule_register_partitions(
                         rk, rd_true/*immediate*/);
+        } else {
+                rd_kafka_dbg(rk, EOS, "MH",
+                             "schedule register partitions NOT REQ.");
+        }
 }
 
 
